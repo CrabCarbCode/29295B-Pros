@@ -1,31 +1,12 @@
+#pragma region BoringVexConfigStuff
+
 #include "main.h"
 #include "stdlib.h" //neccessary for std::[commands]
 #include "sstream"  //neccessary for... logic
 #include "math.h"   //neccessary for functions like abs() and round()
 #include "string"   //neccessary for... using strings :sob:
-#include "robot-config.h"
 
-#pragma region BoringVexConfigStuff
-
-#include "robot-config.h"
-
-/*----------------------------------------------------------------------------*/
-/*                                                                            */
-/*    Module:       main.cpp                                                  */
-/*    Author:       VEX                                                       */
-/*    Created:      Thu Sep 26 2019                                           */
-/*    Description:  Clawbot Competition Template                              */
-/*                                                                            */
-/*----------------------------------------------------------------------------*/
-
-// ---- START VEXCODE CONFIGURED DEVICES ----
-// Robot Configuration:
-// [Name]               [Type]        [Port(s)]
-// MainControl          controller
-// Drivetrain           drivetrain    1, 10, D
-// ClawMotor            motor         3
-// ArmMotor             motor         8
-// ---- END VEXCODE CONFIGURED DEVICES ----
+#include "robot-config.h" //importing the motors and whatnot
 
 #pragma endregion
 
@@ -93,89 +74,9 @@ int timerInPID;
 
 #pragma endregion
 
-/**
- * Runs initialization code. This occurs as soon as the program is started.
- *
- * All other competition modes are blocked by initialize; it is recommended
- * to keep execution time for this mode under a few seconds.
- */
-void initialize() {
-	Inertial.reset();
+////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
-  LDrive.set_zero_position(0);
-  RDrive.set_zero_position(0);
-
-}
-
-/**
- * Runs while the robot is in the disabled state of Field Management System or
- * the VEX Competition Switch, following either autonomous or opcontrol. When
- * the robot is enabled, this task will exit.
- */
-void disabled() {}
-
-/**
- * Runs after initialize(), and before autonomous when connected to the Field
- * Management System or the VEX Competition Switch. This is intended for
- * competition-specific initialization routines, such as an autonomous selector
- * on the LCD.
- *
- * This task will exit when the robot is enabled and autonomous or opcontrol
- * starts.
- */
-void competition_initialize() {}
-
-/**
- * Runs the user autonomous code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the autonomous
- * mode. Alternatively, this function may be called in initialize or opcontrol
- * for non-competition testing purposes.
- *
- * If the robot is disabled or communications is lost, the autonomous task
- * will be stopped. Re-enabling the robot will restart the task, not re-start it
- * from where it left off.
-
-\ */
-void autonomous() {}
-
-/**
- * Runs the operator control code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the operator
- * control mode.
- *
- * If no competition control is connected, this function will run immediately
- * following initialize().
- *
- * If the robot is disabled or communications is lost, the
- * operator control task will be stopped. Re-enabling the robot will restart the
- * task, not resume it from where it left off.
- */
-void opcontrol() {
-
-  //Y is forward/back, X is left/right
-
-	while (true) {
-
-  // if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
-  int turnAxisValue = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
-
-  PrintToController("XAxisPos: ", MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y), 0, 0, true);
-
-  if (absInt(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) + absInt(turnAxisValue) >= deadband)) {
-
-    double YAxisSpeed = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-    double turnSpeed = turnAxisValue * RCTurnDamping;
-
-    LDrive.move_velocity(YAxisSpeed + turnSpeed);
-    RDrive.move_velocity(YAxisSpeed - turnSpeed);
-
-    }
-	}
-}
-
-
+#pragma region AutonPID //the code behind the autonomous Proportional Integral Derivative controller
 
 
 ///// Control Variables //////
@@ -183,10 +84,6 @@ void opcontrol() {
 bool twoStickMode = true; // toggles single or double stick drive
 int deadband = 7;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 double RCTurnDamping = 0.65;
-
-////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
-
-#pragma region AutonPID //the code behind the autonomous Proportional Integral Derivative controller
 
   #pragma region PIDVariables
 
@@ -367,39 +264,123 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
 #pragma endregion // end of AutonFunctions
 
-#pragma region UserControlFunctions
+  #pragma region UserControlFunctions
 
-void UserControl() {
+void DrivingControl(int printingRow) {
+
+  // if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
+  int turnAxisValue = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
 
   
+
+  if (absInt(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) + absInt(turnAxisValue) >= deadband)) {
+
+    double YAxisSpeed = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+    double turnSpeed = turnAxisValue * RCTurnDamping;
+
+    LDrive.move_velocity(YAxisSpeed + turnSpeed);
+    RDrive.move_velocity(YAxisSpeed - turnSpeed);
+
+  if (printingRow != -1 && (timerInPID % 3 == 0)) { //don't print if the exit code is provided
+
+    PrintToController("Ldrive: ", (YAxisSpeed + turnSpeed), printingRow, 0, true);
+    PrintToController("XAxisPos: ", (YAxisSpeed - turnSpeed), printingRow + 1, 0, true);
+
+  }
+    }
 }
 
-#pragma endregion // end of UserControlFunctions
+int flywheelPosition = 1;
+
+void FlystickControl(int printingRow) {
+
+  if (MainControl.get_digital_new_press(DIGITAL_UP)) {
+    //flywheelPosition
+  }
+
+}
+
+  #pragma endregion // end of UserControlFunctions
 
 #pragma endregion // end of Bot controlling functions
 
-#pragma region CodeExecution
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void autonomous(void) {
 
-  const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
-  desiredDistInDegrees = 50 * degPerCM;
-  desiredHeading = 0;
+#pragma region ExecutionBlock //the region in which the above code is executed during a competition
 
-  // Prevent main from exiting with an infinite loop.
-  while (true) {
+/**
+ * Runs initialization code. This occurs as soon as the program is started.
+ *
+ * All other competition modes are blocked by initialize; it is recommended
+ * to keep execution time for this mode under a few seconds.
+ */
+void initialize() {
+	Inertial.reset();
 
-    // vex::task auton(autonPID);
+  LDrive.set_zero_position(0);
+  RDrive.set_zero_position(0);
 
-    PrintToController("LateralPower: ", lateralPower, 0, 0, true);
+}
 
-    LDrive.move(lateralPower + rotationalPower);
-    RDrive.move(lateralPower - rotationalPower);
+/**
+ * Runs while the robot is in the disabled state of Field Management System or
+ * the VEX Competition Switch, following either autonomous or opcontrol. When
+ * the robot is enabled, this task will exit.
+ */
+void disabled() {}
 
+/**
+ * Runs after initialize(), and before autonomous when connected to the Field
+ * Management System or the VEX Competition Switch. This is intended for
+ * competition-specific initialization routines, such as an autonomous selector
+ * on the LCD.
+ *
+ * This task will exit when the robot is enabled and autonomous or opcontrol
+ * starts.
+ */
+void competition_initialize() {}
+
+/**
+ * Runs the user autonomous code. This function will be started in its own task
+ * with the default priority and stack size whenever the robot is enabled via
+ * the Field Management System or the VEX Competition Switch in the autonomous
+ * mode. Alternatively, this function may be called in initialize or opcontrol
+ * for non-competition testing purposes.
+ *
+ * If the robot is disabled or communications is lost, the autonomous task
+ * will be stopped. Re-enabling the robot will restart the task, not re-start it
+ * from where it left off.
+
+\ */
+void autonomous() {}
+
+/**
+ * Runs the operator control code. This function will be started in its own task
+ * with the default priority and stack size whenever the robot is enabled via
+ * the Field Management System or the VEX Competition Switch in the operator
+ * control mode.
+ *
+ * If no competition control is connected, this function will run immediately
+ * following initialize().
+ *
+ * If the robot is disabled or communications is lost, the
+ * operator control task will be stopped. Re-enabling the robot will restart the
+ * task, not resume it from where it left off.
+ */
+void opcontrol() {
+
+  //Y is forward/back, X is left/right
+
+	while (true) {
+
+    DrivingControl(1);\
+
+    timerInPID++;
     delay(20);
-  }
+	}
 }
 
 
-#pragma endregion // closing the block with pre-auton / auton / driver control execution functions
+#pragma endregion //end of execution block
