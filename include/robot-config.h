@@ -19,8 +19,10 @@ Motor FlystickWheelM2 (15, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 
 
 Imu Inertial(19); //initializing the Inertial sensor
+Rotation ArmRot(18);
 
 Motor_Group LDrive ({LDriveFrontM, LDriveBackM});
 Motor_Group RDrive ({RDriveFrontM, RDriveBackM});
 
 Motor_Group FullDrive ({LDriveFrontM, LDriveBackM});
+Motor_Group Flywheel ({FlystickWheelM1, FlystickWheelM2});
