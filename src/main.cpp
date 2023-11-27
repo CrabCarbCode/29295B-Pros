@@ -52,7 +52,9 @@ void PrintToController(std::string prefix, double data, int row, int column, boo
   if (clear) {
     MainControl.clear();
   }  
-  MainControl.print(row, column, prefix.c_str(), data);
+
+  std::string format = prefix.append("%d");
+  MainControl.print(row, column, format.c_str(), data);
 }
  
 //broken 
@@ -83,7 +85,7 @@ int timeSincePoint (int checkedTime) {
 
 #pragma endregion
 
-////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 #pragma region AutonPID //the code behind the autonomous Proportional Integral Derivative controller
 
@@ -91,7 +93,7 @@ int timeSincePoint (int checkedTime) {
 ///// Control Variables //////
 
 bool twoStickMode = true; // toggles single or double stick drive
-int deadband = 7;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
+int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 double RCTurnDamping = 0.65;
 
 
@@ -153,7 +155,7 @@ double RCTurnDamping = 0.65;
 
   #pragma endregion //end of PID variable declaration
 
-////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 void autonPID() {
 
@@ -192,12 +194,10 @@ void autonPID() {
     // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (absDouble(currentErrorR) < integralBoundR)
-    { 
+    if (absDouble(currentErrorR) < integralBoundR) { 
       errorIntegralR += rI * (currentErrorR);
     }
-    else
-    {
+    else {
       errorIntegralR = 0;
     }
 
@@ -222,7 +222,7 @@ void autonPID() {
 
 #pragma endregion // end of PID block
 
-////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 #pragma region ActualCompetitionFunctions
 
@@ -257,7 +257,9 @@ void AdjustFlystick() {
   double currentErrorF = desiredRotation - ArmRot.get_position();
   double errorDerivativeF = currentErrorF - previousErrorF;
 
-  if (abs(currentErrorF) >= 3) { FlystickArmM.move_velocity((currentErrorF + errorDerivativeF) * fO); }
+  if (abs(currentErrorF) >= 3) { //FlystickArmM.move_velocity((currentErrorF + errorDerivativeF) * fO);
+  //PrintToController("ArmPos: ", ((currentErrorF + errorDerivativeF) * fO), 3, 0, false);
+  }
 
   previousErrorF = currentErrorF;
 
@@ -276,13 +278,10 @@ const int totalNumOfCommands = 10; // change depending on the total number of "s
 
 // struct AutonCommands CommandList[totalNumOfCommands]; //initializes the list of autonomous commands, must be populated in active code (preauton)
 
-////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) { 
   //responsible for unpacking, tracking and completing each "stage" of the selected autonomous routine
-
-  const double wheelCircumferance = (4.1875 * Pi) * 2.54;
-  const double degPerCM = 360 / wheelCircumferance;
 
   // 360 degrees = circumferance cm
 
@@ -297,10 +296,17 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     desiredHeading = CurrentCommand.desiredHeading;
 
     double speedMult = CurrentCommand.targetSpeed / 100;
+    
+    while (currentErrorL >= 5 || currentErrorR >= 2) { 
 
-    // vex::task auton(autonPID);
+      autonPID(); 
 
-    // RotPower is incorporated as a positive on the left side, meaning positive angles make righthand turns
+      PrintToController("Executing Step: ", i, 1, 0, true);
+      PrintToController("ErrorL: ", currentErrorL, 2, 0, false);
+      PrintToController("ErrorR: ", currentErrorR, 3, 0, false);
+    }
+
+    //RotPower is incorporated as a positive on the left side, meaning positive angles make righthand turns
 
     LDrive.set_voltage_limit(speedMult * (lateralPower + rotationalPower));
     LDrive.set_voltage_limit(speedMult * (lateralPower - rotationalPower));
@@ -321,22 +327,24 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     double YAxisSpeed = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
     double turnSpeed = turnAxisValue * RCTurnDamping;
 
-    LDrive.move_velocity(YAxisSpeed + turnSpeed);
-    RDrive.move_velocity(YAxisSpeed - turnSpeed);
+    //PrintToController("FWD: ", (YAxisSpeed), 0, 0, true);
+    //PrintToController("SIDE: ", (turnSpeed), 1, 0, true);
 
-    if (printingRow != -1 && (globalTimer % 3 == 0)) { //don't print if the exit code is provided
+    //LDrive.move_velocity(pow((YAxisSpeed + turnSpeed), 2));
+    //RDrive.move_velocity(pow((YAxisSpeed - turnSpeed), 2));
 
-    PrintToController("Ldrive: ", (YAxisSpeed + turnSpeed), printingRow, 0, true);
-    PrintToController("Rdrive: ", (YAxisSpeed - turnSpeed), printingRow + 1, 0, true);
+    } else {
+   
+      LDrive.move_velocity(0);
+      RDrive.move_velocity(0);
 
-      }
     }
   }
 
 bool FlywheelFWD = true;
 bool FlywheelOn = false;
 
-void FlystickControl(int8_t printingRow, int timeSinceUp, int timeSinceDown, int timeSinceSpin) {
+void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int timeSinceSpin) {
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
@@ -357,8 +365,7 @@ void FlystickControl(int8_t printingRow, int timeSinceUp, int timeSinceDown, int
     Flywheel.set_reversed(FlywheelFWD);
   }
 
-  PrintToController("FS - Pos: ", flystickPos, printingRow, 0, false);
-  PrintToController(" Speed: ", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false);
+  //PrintToController(" Speed: ", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false);
 
   if ((timeSinceSpin <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
     //kills the function if spin button is on cooldown or button has not been pressed   
@@ -374,7 +381,7 @@ void FlystickControl(int8_t printingRow, int timeSinceUp, int timeSinceDown, int
 
 #pragma endregion // end of Bot controlling functions
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -391,6 +398,7 @@ void initialize() {
 
   LDrive.set_zero_position(0);
   RDrive.set_zero_position(0);
+  FullDrive.set_brake_modes(E_MOTOR_BRAKE_HOLD);
   ArmRot.set_position(30);
 
 }
@@ -440,22 +448,34 @@ void autonomous() {}
  * operator control task will be stopped. Re-enabling the robot will restart the
  * task, not resume it from where it left off.
  */
-
-
-
 void opcontrol() {
 
   //Y is forward/back, X is left/right
-  
 
 	while (true) { 
 
-    DrivingControl(1);
-    FlystickControl(2, (globalTimer - lastUpTimestamp), (globalTimer - lastDownTimestamp), (globalTimer - lastSpinChangeTimestamp));
-    AdjustFlystick();
+    DrivingControl(0);
+    FlystickControl(1, (globalTimer - lastUpTimestamp), (globalTimer - lastDownTimestamp), (globalTimer - lastSpinChangeTimestamp));
+    double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+    double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
 
+    //PrintToController("YStick: ", YstickPos, 0, 0, true);
+    //PrintToController("XStick: ", XstickPos, 1, 0, false);
+    //MainControl.print(0, 0, "XStick: %d", XstickPos);
+    //MainControl.print(0 , 0, "Timer: %d", globalTimer);
+    //PrintToController("XStick: ", XstickPos, 1, 0, false);
+    //PrintToController("FS - Pos: ", flystickPos, 2, 0, false);
+    //AdjustFlystick();
+
+    
+    MainControl.print(0 , 0, "ControllerVal: %d", (YstickPos));
+    
+    if (globalTimer % 3 == 0) {
+      MainControl.clear_line(0);
+    }
+    
     globalTimer++;
-    delay(20);
+    delay(50);
 	}
 }
 

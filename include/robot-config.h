@@ -9,14 +9,16 @@ pros::Controller MainControl (E_CONTROLLER_MASTER); //declared with "pros::" to 
 
 
 Motor LDriveFrontM (2, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
-Motor LDriveBackM (1, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
-Motor RDriveFrontM (9, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
-Motor RDriveBackM (8, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
+Motor LDriveBackM (1, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
+Motor RDriveFrontM (8, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
+Motor RDriveBackM (9, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlystickArmM (6, E_MOTOR_GEARSET_36, true, E_MOTOR_ENCODER_DEGREES);
 Motor FlystickWheelM1 (13, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 Motor FlystickWheelM2 (15, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 
+ADIDigitalOut WingP1 ('G');
+ADIDigitalOut WingP2 ('H');
 
 Imu Inertial(19); //initializing the Inertial sensor
 Rotation ArmRot(18);
