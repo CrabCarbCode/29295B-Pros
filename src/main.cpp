@@ -8,6 +8,8 @@
 
 #include "robot-config.h" //importing the motors and whatnot
 
+using namespace std;
+
 #pragma endregion
 
 #pragma region NotesMaybeReadMe
@@ -24,6 +26,7 @@ Strings do not work in vex without external library shenanigans
 #pragma region GlobalVars
 
 const float Pi = 3.14159265358;
+const float e = 2.71828182845;
 int globalTimer = 0;
 const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2*Pi*r" * 2.54cm/")
 
@@ -52,35 +55,19 @@ void PrintToController(std::string prefix, double data, int row, int column, boo
   if (clear) {
     MainControl.clear();
   }  
-
-  std::string format = prefix.append("%d");
-  MainControl.print(row, column, format.c_str(), data);
-}
- 
-//broken 
-/*void PrintToController(std::string prefix, double data, int row, int column, bool clear) {
-  if (clear) {
-    screen.clear();
-  }  
-  screen::print(row, column, prefix.c_str(), data);
-}*/
-
-// Math Functions
-int absInt(int val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
-}
-
-double absDouble(double val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
-}
-
-float absFloat(float val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
+  MainControl.print(row, column, prefix.c_str(), data);
 }
 
 int timeSincePoint (int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1; //returns -1 if checkedtime is in the future
 }
+
+//i have no idea what im doing
+double AccelSmoothingFunc(double input, double x) {
+    const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
+
+    return (modifier * input);
+  }
 
 
 #pragma endregion
@@ -173,7 +160,7 @@ void autonPID() {
     // filters out the integral at long ranges (if |error| < constant upper limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (absDouble(currentErrorL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
+    if (fabs(currentErrorL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
       errorIntegralL += lI * (currentErrorL);
     }
     else {
@@ -194,7 +181,7 @@ void autonPID() {
     // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (absDouble(currentErrorR) < integralBoundR) { 
+    if (fabs(currentErrorR) < integralBoundR) { 
       errorIntegralR += rI * (currentErrorR);
     }
     else {
@@ -315,23 +302,42 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
 #pragma endregion // end of AutonFunctions
 
+  /*
+  store previous stick amounts
+  if stick changes significantly, set time marker
+  input smoothing function with time since marker
+
+  */
+
   #pragma region UserControlFunctions
+
+  int prevXVal = 0;
+  int prevYVal = 0;
 
   void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
 
+    //Y is forward/back, X is left/right
+
     //if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
-    int turnAxisValue = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+    int currentXVal = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
 
-    if (absInt(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) + absInt(turnAxisValue) >= deadband)) {
+    //implementing a slow initial acceleration
 
-    double YAxisSpeed = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-    double turnSpeed = turnAxisValue * RCTurnDamping;
+    double currentYVal = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+    double turnSpeed = currentXVal * RCTurnDamping;
 
-    //PrintToController("FWD: ", (YAxisSpeed), 0, 0, true);
+    if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
+
+    //PrintToController("FWD: ", (currentYVal), 0, 0, true);
     //PrintToController("SIDE: ", (turnSpeed), 1, 0, true);
 
-    //LDrive.move_velocity(pow((YAxisSpeed + turnSpeed), 2));
-    //RDrive.move_velocity(pow((YAxisSpeed - turnSpeed), 2));
+
+
+                                //if the stick has drastically changed and been held for more than 500ms, round to 1
+    int outputY = AccelSmoothingFunc((currentYVal), 0.1)
+    
+    LDrive.move_velocity();
+    RDrive.move_velocity((currentYVal - turnSpeed));
 
     } else {
    
@@ -339,6 +345,9 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
       RDrive.move_velocity(0);
 
     }
+
+    prevXVal = currentXVal;
+    prevYVal = currentYVal;
   }
 
 bool FlywheelFWD = true;
@@ -374,6 +383,21 @@ void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int ti
 
     if (FlywheelOn) {FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
     else {FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
+  }
+}
+
+void WingsControl() {
+
+  if (MainControl.get_digital(DIGITAL_R1)) {
+    WingP1.set_value(true);
+  } else {
+    WingP1.set_value(false);
+  }
+
+  if (MainControl.get_digital(DIGITAL_L1)) {
+    WingP2.set_value(true);
+  } else {
+    WingP2.set_value(false);
   }
 }
 
@@ -450,29 +474,54 @@ void autonomous() {}
  */
 void opcontrol() {
 
-  //Y is forward/back, X is left/right
+  /*  test motors driving autonomously
+    *  FullDrive.move(100);
+    *  delay(300);
+    *  FullDrive.brake();
+    *  delay(300);
+    *  LDrive.move(-100);
+    *  RDrive.move(-100);
+    *  delay(200);
+    *  FullDrive.brake;
+    */ 
 
 	while (true) { 
 
-    DrivingControl(0);
+    if (globalTimer % 3 == 0) {
+      //testing the printing function
+      
+      //std::string tempString = "Timer: %d"
+      //MainControl.clear_line(0);
+      //MainControl.print(0, 0, tempString.c_str(), globalTimer);
+      PrintToController("Timer: %d", globalTimer, 0, 0, true);
+    }
+
+    //DrivingControl(-1);
+    WingsControl();
     FlystickControl(1, (globalTimer - lastUpTimestamp), (globalTimer - lastDownTimestamp), (globalTimer - lastSpinChangeTimestamp));
     double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
     double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-
-    //PrintToController("YStick: ", YstickPos, 0, 0, true);
-    //PrintToController("XStick: ", XstickPos, 1, 0, false);
-    //MainControl.print(0, 0, "XStick: %d", XstickPos);
-    //MainControl.print(0 , 0, "Timer: %d", globalTimer);
-    //PrintToController("XStick: ", XstickPos, 1, 0, false);
-    //PrintToController("FS - Pos: ", flystickPos, 2, 0, false);
-    //AdjustFlystick();
-
     
     MainControl.print(0 , 0, "ControllerVal: %d", (YstickPos));
     
-    if (globalTimer % 3 == 0) {
-      MainControl.clear_line(0);
-    }
+    /* test to see if the controller is being read (negative and positive)
+    *  FullDrive.move(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y));
+    */
+
+    /* test to see if the stick value can be printed
+     *  PrintToController("YStickVal: %d", YstickPos, )
+     */ 
+   int i = MainControl.get_battery_level();
+   /*  test to see if multiple things can be printed
+    *  MainControl.print(1, 0, "Battery: %d", MainControl.get_battery_level());
+    *  MainControl.print(2, 0, "Battery2: %d", MainControl.get_battery_capacity());
+    */ 
+
+   
+
+   /* 
+    *  
+    */ 
     
     globalTimer++;
     delay(50);
