@@ -28,12 +28,13 @@ Strings do not work in vex without external library shenanigans
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
 int globalTimer = 0;
+int timerTickRate = 20; //the number of 'ticks' in one second
 const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2*Pi*r" * 2.54cm/")
 
 int flystickPos = 1; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
-int lastDownTimestamp = 0;
-int lastSpinChangeTimestamp = 0;
+int lastDownTimestamp = 0; 
+int lastSpinTimestamp = 0;
 int maxFlywheelSpeed = 100; //flywheel speed as a percent
 
 #pragma endregion
@@ -66,7 +67,7 @@ int timeSincePoint (int checkedTime) {
 double AccelSmoothingFunc(double input, double x) {
     const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
 
-    return (modifier * input);
+    return x >= (timerTickRate / 2) ? (modifier * input) : input;
   }
 
 
@@ -281,7 +282,7 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     // setting the PID's target values for this stage of the autonomous routine
     desiredDistInDegrees = CurrentCommand.desiredDistInCM * degPerCM;
     desiredHeading = CurrentCommand.desiredHeading;
-
+ 
     double speedMult = CurrentCommand.targetSpeed / 100;
     
     while (currentErrorL >= 5 || currentErrorR >= 2) { 
@@ -313,6 +314,8 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
   int prevXVal = 0;
   int prevYVal = 0;
+  int XAccelTimeStamp = 0;
+  int YAccelTimeStamp = 0;
 
   void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
 
@@ -321,22 +324,30 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     //if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
     int currentXVal = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
 
-    //implementing a slow initial acceleration
-
     double currentYVal = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
     double turnSpeed = currentXVal * RCTurnDamping;
+
+    //implementing a slow initial acceleration for precision movements
+
+    if (abs(prevYVal <= deadband && (abs(currentYVal) - abs(prevYVal) >= 25))) {  
+      //if the X stick's position has changed drastically from zero, set a marker for the acceleration function
+      YAccelTimeStamp = globalTimer;
+    }
+    if (abs(prevXVal <= deadband && (abs(currentXVal) - abs(prevXVal) >= 20))) {  
+      //if the X stick's position has changed drastically from zero, set a marker for the acceleration function
+      XAccelTimeStamp = globalTimer;
+    }
 
     if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
 
     //PrintToController("FWD: ", (currentYVal), 0, 0, true);
     //PrintToController("SIDE: ", (turnSpeed), 1, 0, true);
 
-
-
-                                //if the stick has drastically changed and been held for more than 500ms, round to 1
-    int outputY = AccelSmoothingFunc((currentYVal), 0.1)
     
-    LDrive.move_velocity();
+    int outputY = AccelSmoothingFunc((currentYVal), (globalTimer - YAccelTimeStamp));
+    int outputX = AccelSmoothingFunc((currentXVal), (globalTimer - XAccelTimeStamp));
+    
+    //LDrive.move_velocity();
     RDrive.move_velocity((currentYVal - turnSpeed));
 
     } else {
@@ -353,18 +364,18 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 bool FlywheelFWD = true;
 bool FlywheelOn = false;
 
-void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int timeSinceSpin) {
+void FlystickControl(int printingRow) {
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
 
   //changing the position of the arm
-  if (MainControl.get_digital_new_press(DIGITAL_UP) && (timeSinceUp >= cooldown)) {
+  if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown)) {
     flystickPos++;
     lastUpTimestamp = globalTimer;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (timeSinceUp >= cooldown)) {
+  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (globalTimer - lastDownTimestamp >= cooldown)) {
     flystickPos--;
     lastDownTimestamp = globalTimer;
   }
@@ -374,13 +385,13 @@ void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int ti
     Flywheel.set_reversed(FlywheelFWD);
   }
 
-  //PrintToController(" Speed: ", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false);
+  if (printingRow != -1) { PrintToController("Speed: %d", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false); }
 
-  if ((timeSinceSpin <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
+  if ((globalTimer - lastSpinTimestamp <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
     //kills the function if spin button is on cooldown or button has not been pressed   
     return;
   } else {
-
+    lastSpinTimestamp = globalTimer;
     if (FlywheelOn) {FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
     else {FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
   }
@@ -420,9 +431,12 @@ void WingsControl() {
 void initialize() {
 	Inertial.reset();
 
-  LDrive.set_zero_position(0);
-  RDrive.set_zero_position(0);
+  FullDrive.set_zero_position(0);
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_HOLD);
+
+  Flywheel.set_brake_modes(E_MOTOR_BRAKE_COAST);
+
+  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
   ArmRot.set_position(30);
 
 }
@@ -498,7 +512,7 @@ void opcontrol() {
 
     //DrivingControl(-1);
     WingsControl();
-    FlystickControl(1, (globalTimer - lastUpTimestamp), (globalTimer - lastDownTimestamp), (globalTimer - lastSpinChangeTimestamp));
+    FlystickControl(1);
     double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
     double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
     
@@ -524,7 +538,7 @@ void opcontrol() {
     */ 
     
     globalTimer++;
-    delay(50);
+    delay(1000 / timerTickRate);
 	}
 }
 
