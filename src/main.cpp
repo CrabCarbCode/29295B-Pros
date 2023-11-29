@@ -5,8 +5,11 @@
 #include "sstream"  //neccessary for... logic
 #include "math.h"   //neccessary for functions like abs() and round()
 #include "string"   //neccessary for... using strings :sob:
+#include "cstring"
 
 #include "robot-config.h" //importing the motors and whatnot
+
+using namespace std;
 
 #pragma endregion
 
@@ -24,13 +27,15 @@ Strings do not work in vex without external library shenanigans
 #pragma region GlobalVars
 
 const float Pi = 3.14159265358;
+const float e = 2.71828182845;
 int globalTimer = 0;
+int timerTickRate = 10; //the number of 'ticks' in one second
 const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2*Pi*r" * 2.54cm/")
 
 int flystickPos = 1; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
-int lastDownTimestamp = 0;
-int lastSpinChangeTimestamp = 0;
+int lastDownTimestamp = 0; 
+int lastSpinTimestamp = 0;
 int maxFlywheelSpeed = 100; //flywheel speed as a percent
 
 #pragma endregion
@@ -48,39 +53,32 @@ namespace patch { //instead of std::to_string([var]) its now patch::to_string([v
     }
 }
 
-void PrintToController(std::string prefix, double data, int row, int column, bool clear) {
-  if (clear) {
-    MainControl.clear();
-  }  
+const char* toChar(std::string string) {
+    return string.c_str();
+  }
 
-  std::string format = prefix.append("%d");
-  MainControl.print(row, column, format.c_str(), data);
-}
- 
-//broken 
-/*void PrintToController(std::string prefix, double data, int row, int column, bool clear) {
-  if (clear) {
-    screen.clear();
-  }  
-  screen::print(row, column, prefix.c_str(), data);
+/*void PrintToController(std::string prefix, int data, int row, int column, bool clear) {
+
+  if (globalTimer % 10 == 0) {
+        MainControl.clear();
+      }
+
+  const char* out = toChar(prefix + "%d");
+  int D = data;
+
+  MainControl.print(0, 0, out, D);
 }*/
-
-// Math Functions
-int absInt(int val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
-}
-
-double absDouble(double val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
-}
-
-float absFloat(float val) { // Convert integers to their absolute value
-  return val < 0 ? -val : val;
-}
 
 int timeSincePoint (int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1; //returns -1 if checkedtime is in the future
 }
+
+//i have no idea what im doing
+double AccelSmoothingFunc(double input, double x) {
+    const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
+
+    return x >= (timerTickRate / 2) ? (modifier * input) : input;
+  }
 
 
 #pragma endregion
@@ -173,7 +171,7 @@ void autonPID() {
     // filters out the integral at long ranges (if |error| < constant upper limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (absDouble(currentErrorL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
+    if (fabs(currentErrorL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
       errorIntegralL += lI * (currentErrorL);
     }
     else {
@@ -194,7 +192,7 @@ void autonPID() {
     // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (absDouble(currentErrorR) < integralBoundR) { 
+    if (fabs(currentErrorR) < integralBoundR) { 
       errorIntegralR += rI * (currentErrorR);
     }
     else {
@@ -207,7 +205,7 @@ void autonPID() {
     //////        ending math        //////
     ///////////////////////////////////////
 
-    PrintToController("Test: ", globalTimer, 0, 0, false);
+    //PrintToController("Test: ", globalTimer, 0, 0, false);
 
     globalTimer += 1;
 
@@ -287,23 +285,23 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
   for (int i = 0; ++i >= totalNumOfCommands;) {
 
-    PrintToController("Executing Step: ", i, 0, 0, true);
+    //PrintToController("Executing Step: ", i, 0, 0, true);
 
     struct AutonCommand CurrentCommand = CurrentCommandList[i];
 
     // setting the PID's target values for this stage of the autonomous routine
     desiredDistInDegrees = CurrentCommand.desiredDistInCM * degPerCM;
     desiredHeading = CurrentCommand.desiredHeading;
-
+ 
     double speedMult = CurrentCommand.targetSpeed / 100;
     
     while (currentErrorL >= 5 || currentErrorR >= 2) { 
 
       autonPID(); 
 
-      PrintToController("Executing Step: ", i, 1, 0, true);
-      PrintToController("ErrorL: ", currentErrorL, 2, 0, false);
-      PrintToController("ErrorR: ", currentErrorR, 3, 0, false);
+      //PrintToController("Executing Step: ", i, 1, 0, true);
+      //PrintToController("ErrorL: ", currentErrorL, 2, 0, false);
+      //PrintToController("ErrorR: ", currentErrorR, 3, 0, false);
     }
 
     //RotPower is incorporated as a positive on the left side, meaning positive angles make righthand turns
@@ -315,23 +313,62 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
 #pragma endregion // end of AutonFunctions
 
+  /*
+  store previous stick amounts
+  if stick changes significantly, set time marker
+  input smoothing function with time since marker
+
+  */
+
   #pragma region UserControlFunctions
+
+  int prevXVal = 0;
+  int prevYVal = 0;
+  int XAccelTimeStamp = 0;
+  int YAccelTimeStamp = 0;
 
   void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
 
+    //Y is forward/back, X is left/right
+
     //if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
-    int turnAxisValue = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+    int currentXVal = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
 
-    if (absInt(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) + absInt(turnAxisValue) >= deadband)) {
+    double currentYVal = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+    double turnSpeed = currentXVal * RCTurnDamping;
 
-    double YAxisSpeed = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-    double turnSpeed = turnAxisValue * RCTurnDamping;
+    //implementing a slow initial acceleration for precision movements
 
-    //PrintToController("FWD: ", (YAxisSpeed), 0, 0, true);
-    //PrintToController("SIDE: ", (turnSpeed), 1, 0, true);
+    if (abs(prevYVal <= deadband && (abs(currentYVal) - abs(prevYVal) >= 25))) {  
+      //if the Y stick's position has changed drastically from zero, set a marker for the acceleration function
+      YAccelTimeStamp = globalTimer;
+    }
+    if (abs(prevXVal <= deadband && (abs(currentXVal) - abs(prevXVal) >= 20))) {  
+      //if the X stick's position has changed drastically from zero, set a marker for the acceleration function
+      XAccelTimeStamp = globalTimer;
+    }
 
-    //LDrive.move_velocity(pow((YAxisSpeed + turnSpeed), 2));
-    //RDrive.move_velocity(pow((YAxisSpeed - turnSpeed), 2));
+    if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
+
+    int outputY = AccelSmoothingFunc((currentYVal), (globalTimer - YAccelTimeStamp));
+    int outputX = AccelSmoothingFunc((currentXVal), (globalTimer - XAccelTimeStamp));
+    
+    /* print drive stuff
+    *  PrintToController("LDrive: %d", LDriveFrontM.get_actual_velocity(), 1, 0, false);
+    *  PrintToController("RDrive: %d", RDriveFrontM.get_actual_velocity(), 1, 0, false);
+    */
+
+    if (globalTimer % 2 == 0) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); }
+    else { MainControl.print(2, 0, "LDrive: %d", (outputY - outputX)); }
+
+    if (currentYVal - prevYVal == -127) {
+      while (true) {
+        
+      }
+    }
+
+    //LDrive.move_velocity(outputY);
+    //RDrive.move_velocity(outputX);
 
     } else {
    
@@ -339,23 +376,28 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
       RDrive.move_velocity(0);
 
     }
+
+    prevXVal = currentXVal;
+    prevYVal = currentYVal;
   }
 
 bool FlywheelFWD = true;
 bool FlywheelOn = false;
 
-void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int timeSinceSpin) {
+void FlystickControl(int printingRow) {
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
 
+  //MainControl.print(1, 0, "ArmVal: %d", flystickPos);
+
   //changing the position of the arm
-  if (MainControl.get_digital_new_press(DIGITAL_UP) && (timeSinceUp >= cooldown)) {
+  if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown) && flystickPos < 4) {
     flystickPos++;
     lastUpTimestamp = globalTimer;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (timeSinceUp >= cooldown)) {
+  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (globalTimer - lastDownTimestamp >= cooldown) && flystickPos > 1) {
     flystickPos--;
     lastDownTimestamp = globalTimer;
   }
@@ -365,15 +407,32 @@ void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int ti
     Flywheel.set_reversed(FlywheelFWD);
   }
 
-  //PrintToController(" Speed: ", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false);
+  if (printingRow != -1) { //PrintToController("Speed: %d", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false); }
 
-  if ((timeSinceSpin <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
+  }
+
+  if ((globalTimer - lastSpinTimestamp <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
     //kills the function if spin button is on cooldown or button has not been pressed   
     return;
   } else {
-
+    lastSpinTimestamp = globalTimer;
     if (FlywheelOn) {FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
     else {FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
+  }
+}
+
+void WingsControl() {
+
+  if (MainControl.get_digital(DIGITAL_R1)) {
+    WingP1.set_value(true);
+  } else {
+    WingP1.set_value(false);
+  }
+
+  if (MainControl.get_digital(DIGITAL_L1)) {
+    WingP2.set_value(true);
+  } else {
+    WingP2.set_value(false);
   }
 }
 
@@ -396,9 +455,12 @@ void FlystickControl(int printingRow, int timeSinceUp, int timeSinceDown, int ti
 void initialize() {
 	Inertial.reset();
 
-  LDrive.set_zero_position(0);
-  RDrive.set_zero_position(0);
+  FullDrive.set_zero_position(0);
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_HOLD);
+
+  Flywheel.set_brake_modes(E_MOTOR_BRAKE_COAST);
+
+  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
   ArmRot.set_position(30);
 
 }
@@ -448,35 +510,75 @@ void autonomous() {}
  * operator control task will be stopped. Re-enabling the robot will restart the
  * task, not resume it from where it left off.
  */
+
+
 void opcontrol() {
 
-  //Y is forward/back, X is left/right
+  /*  test motors driving autonomously
+    *  FullDrive.move(100);
+    *  delay(300);
+    *  FullDrive.brake();
+    *  delay(300);
+    *  LDrive.move(-100);
+    *  RDrive.move(-100);
+    *  delay(200);
+    *  FullDrive.brake;
+    */ 
 
 	while (true) { 
+      //testing the printing function
+      
+      if (globalTimer % 10 == 0) {
+        MainControl.clear();
+      }
 
-    DrivingControl(0);
-    FlystickControl(1, (globalTimer - lastUpTimestamp), (globalTimer - lastDownTimestamp), (globalTimer - lastSpinChangeTimestamp));
-    double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
-    double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+      if (globalTimer % 3 == 0) {
+        MainControl.print(0, 0, "Timer: %d", globalTimer);
+      }
 
-    //PrintToController("YStick: ", YstickPos, 0, 0, true);
-    //PrintToController("XStick: ", XstickPos, 1, 0, false);
-    //MainControl.print(0, 0, "XStick: %d", XstickPos);
-    //MainControl.print(0 , 0, "Timer: %d", globalTimer);
-    //PrintToController("XStick: ", XstickPos, 1, 0, false);
-    //PrintToController("FS - Pos: ", flystickPos, 2, 0, false);
-    //AdjustFlystick();
+      /* report the rotation sensor's readings
+      *  PrintToController("RotSens: %d", ArmRot1, 0, false)
+      *  PrintToController("ArmStep: %d",)
+      */
+
+  DrivingControl(-1);
+  WingsControl();
+  FlystickControl(-1);
+  double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+  double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+
+  /*MainControl.print(1, 0, "UpDelay: %d", (globalTimer - lastUpTimestamp));
+  MainControl.print(2, 0, "DownStamp: %d", lastDownTimestamp);
+  MainControl.print(3, 0, "Spin: %d", FlywheelFWD);*/
 
     
-    MainControl.print(0 , 0, "ControllerVal: %d", (YstickPos));
+  //MainControl.print(1 , 0, "ControllerVal: %d", (YstickPos));
     
-    if (globalTimer % 3 == 0) {
-      MainControl.clear_line(0);
-    }
+  /* test to see if the controller is being read (negative and positive)
+  *  FullDrive.move(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y));
+  */
+  
+  /* test to see if the stick value can be printed
+  *  PrintToController("YStickVal: %d", YstickPos, )
+  */ 
+
+  /*  test to see if multiple things can be printed
+  *  MainControl.print(1, 0, "Battery: %d", MainControl.get_battery_level());
+  *  MainControl.print(2, 0, "Battery2: %d", MainControl.get_battery_capacity());
+  */
+
+  /* test to see whether the flywheel button delays are being calculated properly
+  *  PrintToController("UpDelay: %d", (globalTimer - lastUpTimestamp), 1, 0, false);
+  *  PrintToController("DownStamp: %d", lastDownTimestamp, 2, 0. false);
+  *  PrintToController("Spin: %d", FlywheelFWD, 3, 0, false);
+  */ 
     
     globalTimer++;
-    delay(50);
+    delay(1000 / timerTickRate);
+
 	}
 }
 
 #pragma endregion //end of execution block
+
+ //int higuzydnuzbn;
