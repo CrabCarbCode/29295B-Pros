@@ -330,7 +330,7 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     //implementing a slow initial acceleration for precision movements
 
     if (abs(prevYVal <= deadband && (abs(currentYVal) - abs(prevYVal) >= 25))) {  
-      //if the X stick's position has changed drastically from zero, set a marker for the acceleration function
+      //if the Y stick's position has changed drastically from zero, set a marker for the acceleration function
       YAccelTimeStamp = globalTimer;
     }
     if (abs(prevXVal <= deadband && (abs(currentXVal) - abs(prevXVal) >= 20))) {  
@@ -340,15 +340,16 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
     if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
 
-    //PrintToController("FWD: ", (currentYVal), 0, 0, true);
-    //PrintToController("SIDE: ", (turnSpeed), 1, 0, true);
-
-    
     int outputY = AccelSmoothingFunc((currentYVal), (globalTimer - YAccelTimeStamp));
     int outputX = AccelSmoothingFunc((currentXVal), (globalTimer - XAccelTimeStamp));
     
-    //LDrive.move_velocity();
-    RDrive.move_velocity((currentYVal - turnSpeed));
+    /* print drive stuff
+    *  PrintToController("LDrive: %d", LDriveFrontM.get_actual_velocity(), 1, 0, false);
+    *  PrintToController("RDrive: %d", RDriveFrontM.get_actual_velocity(), 1, 0, false);
+    */
+
+    //LDrive.move_velocity(outputY);
+    //RDrive.move_velocity(outputX);
 
     } else {
    
@@ -508,34 +509,39 @@ void opcontrol() {
       //MainControl.clear_line(0);
       //MainControl.print(0, 0, tempString.c_str(), globalTimer);
       PrintToController("Timer: %d", globalTimer, 0, 0, true);
+
+      /* report the rotation sensor's readings
+      *  PrintToController("RotSens: %d", ArmRot1, 0, false)
+      *  PrintToController("ArmStep: %d",)
+      */
     }
 
-    //DrivingControl(-1);
-    WingsControl();
-    FlystickControl(1);
-    double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
-    double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
+  //DrivingControl(-1);
+  WingsControl();
+  FlystickControl(1);
+  double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+  double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
     
-    MainControl.print(0 , 0, "ControllerVal: %d", (YstickPos));
+  MainControl.print(0 , 0, "ControllerVal: %d", (YstickPos));
     
-    /* test to see if the controller is being read (negative and positive)
-    *  FullDrive.move(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y));
-    */
+  /* test to see if the controller is being read (negative and positive)
+  *  FullDrive.move(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y));
+  */
 
-    /* test to see if the stick value can be printed
-     *  PrintToController("YStickVal: %d", YstickPos, )
-     */ 
-   int i = MainControl.get_battery_level();
-   /*  test to see if multiple things can be printed
-    *  MainControl.print(1, 0, "Battery: %d", MainControl.get_battery_level());
-    *  MainControl.print(2, 0, "Battery2: %d", MainControl.get_battery_capacity());
-    */ 
+  /* test to see if the stick value can be printed
+  *  PrintToController("YStickVal: %d", YstickPos, )
+  */ 
 
-   
+  /*  test to see if multiple things can be printed
+  *  MainControl.print(1, 0, "Battery: %d", MainControl.get_battery_level());
+  *  MainControl.print(2, 0, "Battery2: %d", MainControl.get_battery_capacity());
+  */ 
 
-   /* 
-    *  
-    */ 
+  /* test to see whether the flywheel button delays are being calculated properly
+  *  PrintToController("UpDelay: %d", (globalTimer - lastUpTimestamp), 1, 0, false);
+  *  PrintToController("DownStamp: %d", lastDownTimestamp, 2, 0. false);
+  *  PrintToController("Spin: %d", FlywheelFWD, 3, 0, false);
+  */ 
     
     globalTimer++;
     delay(1000 / timerTickRate);
