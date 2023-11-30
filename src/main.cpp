@@ -362,10 +362,6 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     else { MainControl.print(2, 0, "LDrive: %d", (outputY - outputX)); }
 
     if (currentYVal - prevYVal == -127) {
-      while (true) {
-        
-      }
-    }
 
     //LDrive.move_velocity(outputY);
     //RDrive.move_velocity(outputX);
@@ -384,7 +380,7 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 bool FlywheelFWD = true;
 bool FlywheelOn = false;
 
-void FlystickControl(int printingRow) {
+void FlystickControl (int printingRow) {
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
@@ -416,8 +412,8 @@ void FlystickControl(int printingRow) {
     return;
   } else {
     lastSpinTimestamp = globalTimer;
-    if (FlywheelOn) {FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
-    else {FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
+    if (FlywheelOn) { FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
+    else { FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
   }
 }
 
@@ -550,35 +546,8 @@ void opcontrol() {
   /*MainControl.print(1, 0, "UpDelay: %d", (globalTimer - lastUpTimestamp));
   MainControl.print(2, 0, "DownStamp: %d", lastDownTimestamp);
   MainControl.print(3, 0, "Spin: %d", FlywheelFWD);*/
-
-    
-  //MainControl.print(1 , 0, "ControllerVal: %d", (YstickPos));
-    
-  /* test to see if the controller is being read (negative and positive)
-  *  FullDrive.move(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y));
-  */
-  
-  /* test to see if the stick value can be printed
-  *  PrintToController("YStickVal: %d", YstickPos, )
-  */ 
-
-  /*  test to see if multiple things can be printed
-  *  MainControl.print(1, 0, "Battery: %d", MainControl.get_battery_level());
-  *  MainControl.print(2, 0, "Battery2: %d", MainControl.get_battery_capacity());
-  */
-
-  /* test to see whether the flywheel button delays are being calculated properly
-  *  PrintToController("UpDelay: %d", (globalTimer - lastUpTimestamp), 1, 0, false);
-  *  PrintToController("DownStamp: %d", lastDownTimestamp, 2, 0. false);
-  *  PrintToController("Spin: %d", FlywheelFWD, 3, 0, false);
-  */ 
     
     globalTimer++;
     delay(1000 / timerTickRate);
-
-	}
+  }
 }
-
-#pragma endregion //end of execution block
-
- //int higuzydnuzbn;
