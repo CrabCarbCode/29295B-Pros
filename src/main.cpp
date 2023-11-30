@@ -29,14 +29,19 @@ Strings do not work in vex without external library shenanigans
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
 int globalTimer = 0;
-int timerTickRate = 10; //the number of 'ticks' in one second
-const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2*Pi*r" * 2.54cm/")
+const int timerTickRate = 20; //the number of 'ticks' in one second
+const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
+const int printingDelay = std::ceil(50 / (1000 / timerTickRate));
 
 int flystickPos = 1; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0; 
 int lastSpinTimestamp = 0;
 int maxFlywheelSpeed = 100; //flywheel speed as a percent
+
+int maxFlystickPos = 4;
+
+int tabVar = 1;
 
 #pragma endregion
 
@@ -57,17 +62,18 @@ const char* toChar(std::string string) {
     return string.c_str();
   }
 
-/*void PrintToController(std::string prefix, int data, int row, int column, bool clear) {
+int toInt(double val) {
+  return val * 10;
+}
+
+void PrintToController(std::string prefix, double data, int row, int column) {
 
   if (globalTimer % 10 == 0) {
         MainControl.clear();
-      }
+  }
 
-  const char* out = toChar(prefix + "%d");
-  int D = data;
-
-  MainControl.print(0, 0, out, D);
-}*/
+  MainControl.print(0, 0, prefix.c_str(), toInt(data));
+}
 
 int timeSincePoint (int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1; //returns -1 if checkedtime is in the future
@@ -230,37 +236,69 @@ void autonPID() {
 
 double previousErrorF = 0; //previous error variable for the flystick arm
 
+bool allowAdjust = false;
+
 void AdjustFlystick() {
+
+  double fP = 0.8;
+  double fD = 1.0;
+  double fO = 1.5;
+
+  int deadzoneF = 1.5;
+
   //responsible for changing/maintaining the position of the flystick using a PD controlelr
   //no Integral because fuck you
 
   int desiredRotation;
-  double fO = 1.0;
+  double armPos = ArmRot.get_angle() / 100;
 
   switch (flystickPos) {
-    case 0:
-      desiredRotation = -45;
-      break;
     case 1:
-      desiredRotation = 0;
+      desiredRotation = 130;
       break;
     case 2:
-      desiredRotation = 10;
+      desiredRotation = 160;
       break;
     case 3:
-      desiredRotation = 45;
+      desiredRotation = 215;
+      break;
+    case 4:
+      desiredRotation = 305;
       break;
   }
 
-  double currentErrorF = desiredRotation - ArmRot.get_position();
+  if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
+    fO -= 0.1;
+  }
+  if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
+    fO += 0.1;
+  }
+
+  double currentErrorF = desiredRotation - armPos;
   double errorDerivativeF = currentErrorF - previousErrorF;
 
-  if (abs(currentErrorF) >= 3) { //FlystickArmM.move_velocity((currentErrorF + errorDerivativeF) * fO);
-  //PrintToController("ArmPos: ", ((currentErrorF + errorDerivativeF) * fO), 3, 0, false);
+  /*switch ((globalTimer % 4)) {
+    case 0:
+      if (tabVar == 1) { MainControl.print(0, 0, "ArmAngle: %d", toInt(armPos)); } //in units of 1/100th of a degree
+      break;
+    case 1:
+      if (tabVar == 1) { MainControl.print(1, 0, "Correction: %d", toInt(fO * (currentErrorF + errorDerivativeF))); }
+      break;
+    case 2:
+      if (tabVar == 2) { MainControl.print(3, 0, "Multiplier: %d", toInt(fO));  }
+      break;
+    case 3:
+       if (tabVar == 1) { MainControl.print(2, 0, "ArmLevel: %d", desiredRotation); }
+      break;
+  } */
+
+  if (abs(currentErrorF >= deadzoneF)) {
+    FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
+  } else {
+    FlystickArmM.move_velocity(0);
   }
 
   previousErrorF = currentErrorF;
-
 }
 
 // structure containing all neccessary data for an autonomous command
@@ -348,23 +386,13 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
       XAccelTimeStamp = globalTimer;
     }
 
-    if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
-
     int outputY = AccelSmoothingFunc((currentYVal), (globalTimer - YAccelTimeStamp));
     int outputX = AccelSmoothingFunc((currentXVal), (globalTimer - XAccelTimeStamp));
-    
-    /* print drive stuff
-    *  PrintToController("LDrive: %d", LDriveFrontM.get_actual_velocity(), 1, 0, false);
-    *  PrintToController("RDrive: %d", RDriveFrontM.get_actual_velocity(), 1, 0, false);
-    */
 
-    if (globalTimer % 2 == 0) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); }
-    else { MainControl.print(2, 0, "LDrive: %d", (outputY - outputX)); }
+    if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
 
-    if (currentYVal - prevYVal == -127) {
-
-    //LDrive.move_velocity(outputY);
-    //RDrive.move_velocity(outputX);
+      LDrive.move_velocity(outputX + outputY);
+      RDrive.move_velocity(outputX - outputY);
 
     } else {
    
@@ -373,14 +401,29 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
     }
 
+    switch ((globalTimer % 4)) {
+    case 0:
+      if (tabVar == 1) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); } //in units of 1/100th of a degree
+      break;
+    case 1:
+      if (tabVar == 1) { MainControl.print(2, 0, "RDrive: %d", (outputY - outputX)); }
+      break;
+    case 2:
+      if (tabVar == 2) { MainControl.print(1, 0, "funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp))); }
+      break;
+    case 3:
+      if (tabVar == 2) { MainControl.print(2, 0, "Time: %d", (globalTimer - YAccelTimeStamp)); }
+      break;
+
     prevXVal = currentXVal;
     prevYVal = currentYVal;
   }
+}  
 
 bool FlywheelFWD = true;
 bool FlywheelOn = false;
 
-void FlystickControl (int printingRow) {
+void FlystickControl(int printingRow) { //done
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
@@ -388,7 +431,7 @@ void FlystickControl (int printingRow) {
   //MainControl.print(1, 0, "ArmVal: %d", flystickPos);
 
   //changing the position of the arm
-  if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown) && flystickPos < 4) {
+  if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown) && flystickPos < maxFlystickPos) {
     flystickPos++;
     lastUpTimestamp = globalTimer;
   }
@@ -417,20 +460,35 @@ void FlystickControl (int printingRow) {
   }
 }
 
-void WingsControl() {
 
-  if (MainControl.get_digital(DIGITAL_R1)) {
-    WingP1.set_value(true);
+bool RWingLockedOut = false;
+bool LWingLockedOut = false;
+
+void WingsControl() { //done
+
+  if (MainControl.get_digital(DIGITAL_L1) && !LWingLockedOut) {
+    WingPL.set_value(true);
   } else {
-    WingP1.set_value(false);
+    WingPL.set_value(false);
   }
 
-  if (MainControl.get_digital(DIGITAL_L1)) {
-    WingP2.set_value(true);
+  if (MainControl.get_digital(DIGITAL_R1) && !RWingLockedOut) {
+    WingPR.set_value(true);
   } else {
-    WingP2.set_value(false);
+    WingPR.set_value(false);
   }
+
+  if (MainControl.get_digital(DIGITAL_L2)) {
+    LWingLockedOut = !LWingLockedOut;
+    WingPL.set_value(LWingLockedOut);
+  }
+  if (MainControl.get_digital(DIGITAL_R2)) {
+    RWingLockedOut = !RWingLockedOut;
+    WingPR.set_value(RWingLockedOut);
+  }
+
 }
+
 
   #pragma endregion // end of UserControlFunctions
 
@@ -442,33 +500,37 @@ void WingsControl() {
 
 #pragma region ExecutionBlock //the region in which the above code is executed during a competition
 
-/**
+  #pragma region BoringBlocks
+  /**
  * Runs initialization code. This occurs as soon as the program is started.
  *
  * All other competition modes are blocked by initialize; it is recommended
  * to keep execution time for this mode under a few seconds.
  */
-void initialize() {
+  void initialize() {
 	Inertial.reset();
+
+  WingPL.set_value(false);
+  WingPR.set_value(false); 
 
   FullDrive.set_zero_position(0);
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_HOLD);
 
   Flywheel.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
-  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
-  ArmRot.set_position(30);
-
+  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
+  ArmRot.reverse();
+  delay(100);
 }
 
-/**
+  /**
  * Runs while the robot is in the disabled state of Field Management System or
  * the VEX Competition Switch, following either autonomous or opcontrol. When
  * the robot is enabled, this task will exit.
  */
-void disabled() {}
+  void disabled() {}
 
-/**
+  /**
  * Runs after initialize(), and before autonomous when connected to the Field
  * Management System or the VEX Competition Switch. This is intended for
  * competition-specific initialization routines, such as an autonomous selector
@@ -477,9 +539,9 @@ void disabled() {}
  * This task will exit when the robot is enabled and autonomous or opcontrol
  * starts.
  */
-void competition_initialize() {}
+  void competition_initialize() {}
 
-/**
+  /**
  * Runs the user autonomous code. This function will be started in its own task
  * with the default priority and stack size whenever the robot is enabled via
  * the Field Management System or the VEX Competition Switch in the autonomous
@@ -491,7 +553,9 @@ void competition_initialize() {}
  * from where it left off.
 
 \ */
-void autonomous() {}
+  void autonomous() {}
+
+  #pragma endregion
 
 /**
  * Runs the operator control code. This function will be started in its own task
@@ -506,9 +570,11 @@ void autonomous() {}
  * operator control task will be stopped. Re-enabling the robot will restart the
  * task, not resume it from where it left off.
  */
-
-
 void opcontrol() {
+
+   ArmRot.set_position(0);
+
+   delay(100);
 
   /*  test motors driving autonomously
     *  FullDrive.move(100);
@@ -519,27 +585,38 @@ void opcontrol() {
     *  RDrive.move(-100);
     *  delay(200);
     *  FullDrive.brake;
+    *  delay(5000);
     */ 
 
 	while (true) { 
-      //testing the printing function
-      
-      if (globalTimer % 10 == 0) {
-        MainControl.clear();
-      }
+  
+  if (globalTimer % 10 == 0) {
+    MainControl.clear();
+  }
 
-      if (globalTimer % 3 == 0) {
+      /*if (globalTimer % (3 * printingDelay) == 0) {
         MainControl.print(0, 0, "Timer: %d", globalTimer);
-      }
+      }*/
+
+  if (MainControl.get_digital_new_press(DIGITAL_Y)) {
+    if (tabVar == 1) {
+      tabVar++;
+    } else {
+      tabVar--;
+    }
+  }
+      //testing the printing function
 
       /* report the rotation sensor's readings
       *  PrintToController("RotSens: %d", ArmRot1, 0, false)
       *  PrintToController("ArmStep: %d",)
       */
 
-  DrivingControl(-1);
+  //DrivingControl(-1);
   WingsControl();
   FlystickControl(-1);
+  AdjustFlystick();
+
   double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
   double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
 
@@ -551,3 +628,11 @@ void opcontrol() {
     delay(1000 / timerTickRate);
   }
 }
+
+// kickstand: 20329 + 20478 + 20452 + 20425 + 20030 + 20531 + 20636 +20153 + 20434 + 20109 + 20373 + 20206 + 20583 + 20882 + 20794
+// Avg: 20427, min: 20030, max: 20882, minDev: 397.6 , maxDev: 454.3
+
+// rest: 23431
+//
+
+// top: 

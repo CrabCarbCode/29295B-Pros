@@ -13,15 +13,15 @@ Motor LDriveBackM (1, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 Motor RDriveFrontM (8, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 Motor RDriveBackM (9, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 
-Motor FlystickArmM (6, E_MOTOR_GEARSET_36, true, E_MOTOR_ENCODER_DEGREES);
+Motor FlystickArmM (6, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 Motor FlystickWheelM1 (13, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 Motor FlystickWheelM2 (15, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 
-ADIDigitalOut WingP1 ('G');
-ADIDigitalOut WingP2 ('H');
+ADIDigitalOut WingPR ('G');
+ADIDigitalOut WingPL ('H');
 
 Imu Inertial(19); //initializing the Inertial sensor
-Rotation ArmRot(18);
+Rotation ArmRot(20);
 
 Motor_Group LDrive ({LDriveFrontM, LDriveBackM});
 Motor_Group RDrive ({RDriveFrontM, RDriveBackM});
