@@ -30,14 +30,14 @@ const float Pi = 3.14159265358;
 const float e = 2.71828182845;
 int globalTimer = 0;
 const int timerTickRate = 20; //the number of 'ticks' in one second
-const double degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
-const int printingDelay = std::ceil(50 / (1000 / timerTickRate));
+const float degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
+const int minPrintingDelay = std::ceil(50 / (1000 / timerTickRate));
 
 int flystickPos = 1; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0; 
 int lastSpinTimestamp = 0;
-int maxFlywheelSpeed = 100; //flywheel speed as a percent
+int maxFlywheelSpeed = 45 ; //flywheel speed as a percent
 
 int maxFlystickPos = 4;
 
@@ -59,20 +59,21 @@ namespace patch { //instead of std::to_string([var]) its now patch::to_string([v
 }
 
 const char* toChar(std::string string) {
-    return string.c_str();
-  }
+  return string.c_str();
+}
 
-int toInt(double val) {
+int toInt(float val) {
   return val * 10;
 }
 
-void PrintToController(std::string prefix, double data, int row, int column) {
-
-  if (globalTimer % 10 == 0) {
-        MainControl.clear();
+void PrintToController(std::string prefix, float data, int row, int page) {
+  if (globalTimer % 7 == 0) {
+    MainControl.clear();
   }
 
-  MainControl.print(0, 0, prefix.c_str(), toInt(data));
+  if (tabVar == page && (globalTimer % (3 * minPrintingDelay)) == row) {
+    MainControl.print(row, 0, prefix.c_str(), toInt(data));
+  }
 }
 
 int timeSincePoint (int checkedTime) {
@@ -80,7 +81,7 @@ int timeSincePoint (int checkedTime) {
 }
 
 //i have no idea what im doing
-double AccelSmoothingFunc(double input, double x) {
+float AccelSmoothingFunc(float input, float x) {
     const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
 
     return x >= (timerTickRate / 2) ? (modifier * input) : input;
@@ -96,9 +97,9 @@ double AccelSmoothingFunc(double input, double x) {
 
 ///// Control Variables //////
 
-bool twoStickMode = true; // toggles single or double stick drive
+bool twoStickMode = true; // toggles single or float stick drive
 int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
-double RCTurnDamping = 0.65;
+float RCTurnDamping = 0.65;
 
 
   #pragma region PIDVariables
@@ -120,38 +121,38 @@ double RCTurnDamping = 0.65;
 
   // tuning coefficients
 
-  double lP = 1.0;
-  double lI = 0.0;
-  double lD = 0.0;
+  float lP = 1.0;
+  float lI = 0.0;
+  float lD = 0.0;
 
-  double lOutput = 1.0;
+  float lOutput = 1.0;
 
-  double rP = 1.0;
-  double rI = 0.0;
-  double rD = 0.0;
+  float rP = 1.0;
+  float rI = 0.0;
+  float rD = 0.0;
 
-  double rOutput = 1.0;
+  float rOutput = 1.0;
 
   int integralBoundL = 10;
   int integralBoundR = 10;
 
   // Storage variables for Lateral (forward/back) PID
 
-  double currentErrorL;      // reported value - desired value = position
-  double previousErrorL = 0; // position from last loop
-  double errorDerivativeL;   //(error - prevError)
-  double errorIntegralL = 0;
+  float currentErrorL;      // reported value - desired value = position
+  float previousErrorL = 0; // position from last loop
+  float errorDerivativeL;   //(error - prevError)
+  float errorIntegralL = 0;
 
-  double lateralPower = 0;
+  float lateralPower = 0;
 
   // Storage variables for Rotational (turning) PID
 
-  double currentErrorR;      // reported value - desired value = position
-  double previousErrorR = 0; // position from last loop
-  double errorDerivativeR;   //(error - prevError)
-  double errorIntegralR = 0;
+  float currentErrorR;      // reported value - desired value = position
+  float previousErrorR = 0; // position from last loop
+  float errorDerivativeR;   //(error - prevError)
+  float errorIntegralR = 0;
 
-  double rotationalPower = 0;
+  float rotationalPower = 0;
 
   // the second set of "rotational" storage vars above are technically useless, as the code executes
   // in such a way that only one set of vars is needed to produce both outputs. however, readability is nice
@@ -234,15 +235,15 @@ void autonPID() {
 
                                                          //CHANGE VALUES THEY ARE FILLER
 
-double previousErrorF = 0; //previous error variable for the flystick arm
+float previousErrorF = 0; //previous error variable for the flystick arm
 
 bool allowAdjust = false;
 
 void AdjustFlystick() {
 
-  double fP = 0.8;
-  double fD = 1.0;
-  double fO = 1.5;
+  float fP = 0.7;
+  float fD = 0.6;
+  float fO = 1.5;
 
   int deadzoneF = 1.5;
 
@@ -250,7 +251,7 @@ void AdjustFlystick() {
   //no Integral because fuck you
 
   int desiredRotation;
-  double armPos = ArmRot.get_angle() / 100;
+  float armPos = ArmRot.get_angle() / 100;
 
   switch (flystickPos) {
     case 1:
@@ -274,8 +275,8 @@ void AdjustFlystick() {
     fO += 0.1;
   }
 
-  double currentErrorF = desiredRotation - armPos;
-  double errorDerivativeF = currentErrorF - previousErrorF;
+  float currentErrorF = desiredRotation - armPos;
+  float errorDerivativeF = currentErrorF - previousErrorF;
 
   /*switch ((globalTimer % 4)) {
     case 0:
@@ -292,7 +293,7 @@ void AdjustFlystick() {
       break;
   } */
 
-  if (abs(currentErrorF >= deadzoneF)) {
+  if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
   } else {
     FlystickArmM.move_velocity(0);
@@ -303,10 +304,10 @@ void AdjustFlystick() {
 
 // structure containing all neccessary data for an autonomous command
 struct AutonCommand {
-  double desiredDistInCM;
-  double desiredHeading;
+  float desiredDistInCM;
+  float desiredHeading;
 
-  double targetSpeed;
+  float targetSpeed;
   int endDelay;
 };
 
@@ -331,7 +332,7 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     desiredDistInDegrees = CurrentCommand.desiredDistInCM * degPerCM;
     desiredHeading = CurrentCommand.desiredHeading;
  
-    double speedMult = CurrentCommand.targetSpeed / 100;
+    float speedMult = CurrentCommand.targetSpeed / 100;
     
     while (currentErrorL >= 5 || currentErrorR >= 2) { 
 
@@ -365,40 +366,39 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
   int XAccelTimeStamp = 0;
   int YAccelTimeStamp = 0;
 
+  int driveMult = 5;
+
   void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
 
     //Y is forward/back, X is left/right
 
     //if the controller is in 2 stick mode axis 4 is responsible for turning, axis 1 if not
-    int currentXVal = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
+    int XStickPos = twoStickMode ? MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) : MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
 
-    double currentYVal = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-    double turnSpeed = currentXVal * RCTurnDamping;
+    float YStickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
 
     //implementing a slow initial acceleration for precision movements
 
-    if (abs(prevYVal <= deadband && (abs(currentYVal) - abs(prevYVal) >= 25))) {  
+    if (abs(prevYVal <= deadband && (abs(YStickPos) - abs(prevYVal) >= 25))) {  
       //if the Y stick's position has changed drastically from zero, set a marker for the acceleration function
       YAccelTimeStamp = globalTimer;
     }
-    if (abs(prevXVal <= deadband && (abs(currentXVal) - abs(prevXVal) >= 20))) {  
+    if (abs(prevXVal <= deadband && (abs(XStickPos) - abs(prevXVal) >= 20))) {  
       //if the X stick's position has changed drastically from zero, set a marker for the acceleration function
       XAccelTimeStamp = globalTimer;
     }
 
-    int outputY = AccelSmoothingFunc((currentYVal), (globalTimer - YAccelTimeStamp));
-    int outputX = AccelSmoothingFunc((currentXVal), (globalTimer - XAccelTimeStamp));
+    int outputY = YStickPos; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+    int outputX = 0.8 * XStickPos; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
 
-    if ((abs(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y)) + abs(currentXVal)) >= deadband) {
+    if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
 
-      LDrive.move_velocity(outputX + outputY);
-      RDrive.move_velocity(outputX - outputY);
-
+      LDrive.move_velocity(driveMult * (outputY + outputX) * abs(outputY + outputX));
+      RDrive.move_velocity(driveMult * (outputY - outputX) * abs(outputY - outputX));
     } else {
    
       LDrive.move_velocity(0);
       RDrive.move_velocity(0);
-
     }
 
     switch ((globalTimer % 4)) {
@@ -415,13 +415,13 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
       if (tabVar == 2) { MainControl.print(2, 0, "Time: %d", (globalTimer - YAccelTimeStamp)); }
       break;
 
-    prevXVal = currentXVal;
-    prevYVal = currentYVal;
+    prevXVal = XStickPos;
+    prevYVal = YStickPos;
   }
 }  
 
 bool FlywheelFWD = true;
-bool FlywheelOn = false;
+bool flywheelOn = false;
 
 void FlystickControl(int printingRow) { //done
   //responsible for selecting the elevation of the flystick
@@ -443,20 +443,25 @@ void FlystickControl(int printingRow) { //done
 
   if (MainControl.get_digital_new_press(DIGITAL_B)) {
     FlywheelFWD = !FlywheelFWD;
-    Flywheel.set_reversed(FlywheelFWD);
+    FlystickWheelM1.set_reversed(FlywheelFWD);
+    FlystickWheelM2.set_reversed(!FlywheelFWD);
+  }
+
+  switch (flywheelOn) {
+    case 0:
+      Flywheel.move_velocity(0);
+      break;
+    case 1:
+      Flywheel.move_velocity(maxFlywheelSpeed * 6); 
+      break;
+  }
+
+  if ((globalTimer - lastSpinTimestamp >= cooldown) && MainControl.get_digital_new_press(DIGITAL_A)) {
+    flywheelOn = !flywheelOn;
   }
 
   if (printingRow != -1) { //PrintToController("Speed: %d", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false); }
 
-  }
-
-  if ((globalTimer - lastSpinTimestamp <= cooldown) || !MainControl.get_digital_new_press(DIGITAL_A)) { 
-    //kills the function if spin button is on cooldown or button has not been pressed   
-    return;
-  } else {
-    lastSpinTimestamp = globalTimer;
-    if (FlywheelOn) { FlywheelOn = false; Flywheel.brake(); } //clunky and bad, should be replaced
-    else { FlywheelOn = true; Flywheel.move_velocity(maxFlywheelSpeed * 6); }
   }
 }
 
@@ -478,15 +483,14 @@ void WingsControl() { //done
     WingPR.set_value(false);
   }
 
-  if (MainControl.get_digital(DIGITAL_L2)) {
+  /*if (MainControl.get_digital_new_press(DIGITAL_L2)) {
     LWingLockedOut = !LWingLockedOut;
     WingPL.set_value(LWingLockedOut);
   }
-  if (MainControl.get_digital(DIGITAL_R2)) {
+  if (MainControl.get_digital_new_press(DIGITAL_R2)) {
     RWingLockedOut = !RWingLockedOut;
     WingPR.set_value(RWingLockedOut);
-  }
-
+  }*/
 }
 
 
@@ -514,11 +518,11 @@ void WingsControl() { //done
   WingPR.set_value(false); 
 
   FullDrive.set_zero_position(0);
-  FullDrive.set_brake_modes(E_MOTOR_BRAKE_HOLD);
+  FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
   Flywheel.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
-  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
+  FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
   ArmRot.reverse();
   delay(100);
 }
@@ -576,6 +580,10 @@ void opcontrol() {
 
    delay(100);
 
+   if (globalTimer % 3 == 0) {
+    MainControl.print(0, 0, "Timer: %d", globalTimer);
+   }
+
   /*  test motors driving autonomously
     *  FullDrive.move(100);
     *  delay(300);
@@ -589,14 +597,6 @@ void opcontrol() {
     */ 
 
 	while (true) { 
-  
-  if (globalTimer % 10 == 0) {
-    MainControl.clear();
-  }
-
-      /*if (globalTimer % (3 * printingDelay) == 0) {
-        MainControl.print(0, 0, "Timer: %d", globalTimer);
-      }*/
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {
     if (tabVar == 1) {
@@ -605,34 +605,13 @@ void opcontrol() {
       tabVar--;
     }
   }
-      //testing the printing function
 
-      /* report the rotation sensor's readings
-      *  PrintToController("RotSens: %d", ArmRot1, 0, false)
-      *  PrintToController("ArmStep: %d",)
-      */
-
-  //DrivingControl(-1);
+  DrivingControl(-1);
   WingsControl();
   FlystickControl(-1);
   AdjustFlystick();
-
-  double XstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X);
-  double YstickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
-
-  /*MainControl.print(1, 0, "UpDelay: %d", (globalTimer - lastUpTimestamp));
-  MainControl.print(2, 0, "DownStamp: %d", lastDownTimestamp);
-  MainControl.print(3, 0, "Spin: %d", FlywheelFWD);*/
     
     globalTimer++;
     delay(1000 / timerTickRate);
   }
 }
-
-// kickstand: 20329 + 20478 + 20452 + 20425 + 20030 + 20531 + 20636 +20153 + 20434 + 20109 + 20373 + 20206 + 20583 + 20882 + 20794
-// Avg: 20427, min: 20030, max: 20882, minDev: 397.6 , maxDev: 454.3
-
-// rest: 23431
-//
-
-// top: 
