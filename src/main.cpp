@@ -33,11 +33,13 @@ const int timerTickRate = 20; //the number of 'ticks' in one second
 const float degPerCM = 360 / (4.1875 * Pi) * 2.54; // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 const int minPrintingDelay = std::ceil(50 / (1000 / timerTickRate));
 
-int flystickPos = 1; //flystick starts at kickstand position
+int flystickPos = 0; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0; 
 int lastSpinTimestamp = 0;
-int maxFlywheelSpeed = 45 ; //flywheel speed as a percent
+int maxFlywheelSpeed = 55 ; //flywheel speed as a percent
+
+double defaultArmPos;
 
 int maxFlystickPos = 4;
 
@@ -82,11 +84,9 @@ int timeSincePoint (int checkedTime) {
 
 //i have no idea what im doing
 float AccelSmoothingFunc(float input, float x) {
-    const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
-
-    return x >= (timerTickRate / 2) ? (modifier * input) : input;
-  }
-
+  const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
+  return x >= (timerTickRate / 2) ? (modifier * input) : input;
+}
 
 #pragma endregion
 
@@ -216,6 +216,11 @@ void autonPID() {
 
     globalTimer += 1;
 
+    PrintToController("ErrorL: %d", currentErrorL, 1, 1);
+    PrintToController("LPower: %d", lateralPower, 2, 1);
+    PrintToController("ErrorR %d", currentErrorR, 1, 2);
+    PrintToController("RPower: %d", rotationalPower, 2, 2);
+
     previousErrorL = currentErrorL;
     previousErrorR = currentErrorR;
     
@@ -245,7 +250,7 @@ void AdjustFlystick() {
   float fD = 0.6;
   float fO = 1.5;
 
-  int deadzoneF = 1.5;
+  int deadzoneF = 0.3;
 
   //responsible for changing/maintaining the position of the flystick using a PD controlelr
   //no Integral because fuck you
@@ -254,6 +259,9 @@ void AdjustFlystick() {
   float armPos = ArmRot.get_angle() / 100;
 
   switch (flystickPos) {
+    case 0:
+      desiredRotation = defaultArmPos;
+      break;
     case 1:
       desiredRotation = 130;
       break;
@@ -268,30 +276,12 @@ void AdjustFlystick() {
       break;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
-    fO -= 0.1;
-  }
-  if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
-    fO += 0.1;
-  }
-
   float currentErrorF = desiredRotation - armPos;
   float errorDerivativeF = currentErrorF - previousErrorF;
 
-  /*switch ((globalTimer % 4)) {
-    case 0:
-      if (tabVar == 1) { MainControl.print(0, 0, "ArmAngle: %d", toInt(armPos)); } //in units of 1/100th of a degree
-      break;
-    case 1:
-      if (tabVar == 1) { MainControl.print(1, 0, "Correction: %d", toInt(fO * (currentErrorF + errorDerivativeF))); }
-      break;
-    case 2:
-      if (tabVar == 2) { MainControl.print(3, 0, "Multiplier: %d", toInt(fO));  }
-      break;
-    case 3:
-       if (tabVar == 1) { MainControl.print(2, 0, "ArmLevel: %d", desiredRotation); }
-      break;
-  } */
+  if (flystickPos == 0) {
+    return;
+  }
 
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
@@ -335,12 +325,8 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     float speedMult = CurrentCommand.targetSpeed / 100;
     
     while (currentErrorL >= 5 || currentErrorR >= 2) { 
-
       autonPID(); 
-
-      //PrintToController("Executing Step: ", i, 1, 0, true);
-      //PrintToController("ErrorL: ", currentErrorL, 2, 0, false);
-      //PrintToController("ErrorR: ", currentErrorR, 3, 0, false);
+      PrintToController("Step: %d", i, 1, 1);
     }
 
     //RotPower is incorporated as a positive on the left side, meaning positive angles make righthand turns
@@ -351,13 +337,6 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 }
 
 #pragma endregion // end of AutonFunctions
-
-  /*
-  store previous stick amounts
-  if stick changes significantly, set time marker
-  input smoothing function with time since marker
-
-  */
 
   #pragma region UserControlFunctions
 
@@ -389,35 +368,38 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
     }
 
     int outputY = YStickPos; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-    int outputX = 0.8 * XStickPos; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+    int outputX = XStickPos; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
 
     if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
-
-      LDrive.move_velocity(driveMult * (outputY + outputX) * abs(outputY + outputX));
-      RDrive.move_velocity(driveMult * (outputY - outputX) * abs(outputY - outputX));
+      LDrive.move_velocity(driveMult * (outputY + outputX) * fabs(0.5 * (outputY + outputX)));
+      RDrive.move_velocity(driveMult * (outputY - outputX) * fabs(0.5 * (outputY - outputX)));
     } else {
-   
       LDrive.move_velocity(0);
       RDrive.move_velocity(0);
     }
 
-    switch ((globalTimer % 4)) {
-    case 0:
-      if (tabVar == 1) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); } //in units of 1/100th of a degree
-      break;
-    case 1:
-      if (tabVar == 1) { MainControl.print(2, 0, "RDrive: %d", (outputY - outputX)); }
-      break;
-    case 2:
-      if (tabVar == 2) { MainControl.print(1, 0, "funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp))); }
-      break;
-    case 3:
-      if (tabVar == 2) { MainControl.print(2, 0, "Time: %d", (globalTimer - YAccelTimeStamp)); }
-      break;
+    PrintToController("LDrive: %d", (outputY + outputX), 1, 1);
+    PrintToController("RDrive: %d", (outputY - outputX), 2, 1);
+    PrintToController("Funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp)), 1, 2);
+    PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 1, 2);
+  
+    /*switch ((globalTimer % 4)) {
+      case 0:
+        if (tabVar == 1) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); } //in units of 1/100th of a degree
+        break;
+      case 1:
+        if (tabVar == 1) { MainControl.print(2, 0, "RDrive: %d", (outputY - outputX)); }
+        break;
+      case 2:
+        if (tabVar == 2) { MainControl.print(1, 0, "funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp))); }
+        break;
+      case 3:
+        if (tabVar == 2) { MainControl.print(2, 0, "Time: %d", (globalTimer - YAccelTimeStamp)); }
+        break;
+    }*/
 
-    prevXVal = XStickPos;
-    prevYVal = YStickPos;
-  }
+  prevXVal = XStickPos;
+  prevYVal = YStickPos;
 }  
 
 bool FlywheelFWD = true;
@@ -460,11 +442,10 @@ void FlystickControl(int printingRow) { //done
     flywheelOn = !flywheelOn;
   }
 
-  if (printingRow != -1) { //PrintToController("Speed: %d", (FlystickWheelM1.get_actual_velocity() / 600), printingRow, 7, false); }
+  if (printingRow != -1) { 
 
   }
 }
-
 
 bool RWingLockedOut = false;
 bool LWingLockedOut = false;
@@ -473,24 +454,25 @@ void WingsControl() { //done
 
   if (MainControl.get_digital(DIGITAL_L1) && !LWingLockedOut) {
     WingPL.set_value(true);
-  } else {
+  } else if (!LWingLockedOut) {
     WingPL.set_value(false);
   }
 
   if (MainControl.get_digital(DIGITAL_R1) && !RWingLockedOut) {
     WingPR.set_value(true);
-  } else {
+  } else if (!RWingLockedOut) {
     WingPR.set_value(false);
   }
 
-  /*if (MainControl.get_digital_new_press(DIGITAL_L2)) {
+  if (MainControl.get_digital_new_press(DIGITAL_L2)) {
     LWingLockedOut = !LWingLockedOut;
     WingPL.set_value(LWingLockedOut);
   }
+
   if (MainControl.get_digital_new_press(DIGITAL_R2)) {
     RWingLockedOut = !RWingLockedOut;
     WingPR.set_value(RWingLockedOut);
-  }*/
+  }
 }
 
 
@@ -524,6 +506,8 @@ void WingsControl() { //done
 
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
   ArmRot.reverse();
+
+  defaultArmPos = ArmRot.get_position() / 100;
   delay(100);
 }
 
@@ -576,13 +560,15 @@ void WingsControl() { //done
  */
 void opcontrol() {
 
-   ArmRot.set_position(0);
 
-   delay(100);
+  delay(300);
 
-   if (globalTimer % 3 == 0) {
-    MainControl.print(0, 0, "Timer: %d", globalTimer);
-   }
+  /*if (globalTimer == (timerTickRate / 2)) {
+    flystickPos = 3;
+  }*/
+
+  PrintToController("Timer: %d", globalTimer, 1, -1);
+
 
   /*  test motors driving autonomously
     *  FullDrive.move(100);
@@ -598,12 +584,8 @@ void opcontrol() {
 
 	while (true) { 
 
-  if (MainControl.get_digital_new_press(DIGITAL_Y)) {
-    if (tabVar == 1) {
-      tabVar++;
-    } else {
-      tabVar--;
-    }
+  if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
+    flystickPos++;
   }
 
   DrivingControl(-1);
