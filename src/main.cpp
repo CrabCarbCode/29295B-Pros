@@ -37,11 +37,11 @@ int flystickPos = 0; //flystick starts at kickstand position
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0; 
 int lastSpinTimestamp = 0;
-int maxFlywheelSpeed = 55 ; //flywheel speed as a percent
+int maxFlywheelSpeed = 48; //flywheel speed as a percent
 
 double defaultArmPos;
 
-int maxFlystickPos = 4;
+int maxFlystickPos = 5;
 
 int tabVar = 1;
 
@@ -65,7 +65,7 @@ const char* toChar(std::string string) {
 }
 
 int toInt(float val) {
-  return val * 10;
+  return val;
 }
 
 void PrintToController(std::string prefix, float data, int row, int page) {
@@ -106,10 +106,10 @@ float RCTurnDamping = 0.65;
 
   // control variables
   bool drivePIDIsEnabled = false;
-  bool autonPIDIsEnabled = false;
+  bool autonPIDIsEnabled = true;
 
-  int desiredDistInDegrees = 200; // temporary
-  int desiredHeading = 0;
+  int desiredDistInDegrees; // temporary
+  int desiredHeading;
 
 //////       TUNING INSTRUCTIONS       //////
 /*
@@ -122,35 +122,35 @@ float RCTurnDamping = 0.65;
   // tuning coefficients
 
   float lP = 1.0;
-  float lI = 0.0;
-  float lD = 0.0;
+  float lD = 1.0;
+  float lI = 0.5;
 
-  float lOutput = 1.0;
+  float lOutput = 3.0;
 
   float rP = 1.0;
-  float rI = 0.0;
-  float rD = 0.0;
+  float rD = 1.0;
+  float rI = 0.5;
 
-  float rOutput = 1.0;
+  float rOutput = 5.0;
 
   int integralBoundL = 10;
   int integralBoundR = 10;
 
   // Storage variables for Lateral (forward/back) PID
 
-  float currentErrorL;      // reported value - desired value = position
+  float errorPorportionalL;      // reported value - desired value = position
   float previousErrorL = 0; // position from last loop
   float errorDerivativeL;   //(error - prevError)
-  float errorIntegralL = 0;
+  float errorIntegralL;
 
   float lateralPower = 0;
 
   // Storage variables for Rotational (turning) PID
 
-  float currentErrorR;      // reported value - desired value = position
+  float errorProportionalR;      // reported value - desired value = position
   float previousErrorR = 0; // position from last loop
   float errorDerivativeR;   //(error - prevError)
-  float errorIntegralR = 0;
+  float errorIntegralR;
 
   float rotationalPower = 0;
 
@@ -162,69 +162,69 @@ float RCTurnDamping = 0.65;
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
-void autonPID() {
+void AutonPID() {
 
   if (autonPIDIsEnabled) {
- 
+  
     ///////////////////////////////////////
     //////        Lateral PID        //////
     ///////////////////////////////////////
 
     int avgMotorPosition = (RDriveFrontM.get_position() + LDriveFrontM.get_position()) / 2;
 
-    currentErrorL = lP * (desiredDistInDegrees - avgMotorPosition); // proportional error
-    errorDerivativeL = lD * (currentErrorL - previousErrorL);       // derivative of error
+    errorPorportionalL = lP * (desiredDistInDegrees - avgMotorPosition); // proportional error
+    errorDerivativeL = lD * (errorPorportionalL - previousErrorL);       // derivative of error
 
     // filters out the integral at long ranges (if |error| < constant upper limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (fabs(currentErrorL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
-      errorIntegralL += lI * (currentErrorL);
+    if (fabs(errorPorportionalL) < integralBoundL) { // NEED TO MAKE ABSOLUTE OF CURRENTERROR WORK
+      errorIntegralL += lI * (errorPorportionalL);
     }
     else {
       errorIntegralL = 0;
     }
 
-    lateralPower = (currentErrorL + errorDerivativeL + errorIntegralL) / lOutput;
+    lateralPower = (errorPorportionalL + errorDerivativeL + errorIntegralL) / lOutput;
 
     ///////////////////////////////////////
     //////      Rotational PID       //////
     ///////////////////////////////////////
 
-    int avgBotRotation = LDriveFrontM.get_position() - RDriveFrontM.get_position();
+    int avgBotRotation = LDriveFrontM.get_position() - RDriveFrontM.get_position(); //Inertial.get_heading(); 
 
-    currentErrorR = rP * (desiredHeading - avgBotRotation);   // proportional error
-    errorDerivativeR = rD * (currentErrorR - previousErrorR); // derivative of error
+    errorProportionalR = rP * (desiredHeading - avgBotRotation);   // proportional error
+    errorDerivativeR = rD * (errorProportionalR - previousErrorR); // derivative of error
 
     // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
 
-    if (fabs(currentErrorR) < integralBoundR) { 
-      errorIntegralR += rI * (currentErrorR);
+    if (fabs(errorProportionalR) < integralBoundR) { 
+      errorIntegralR += rI * (errorProportionalR);
     }
     else {
       errorIntegralR = 0;
     }
 
-    rotationalPower = (currentErrorL + errorDerivativeL + errorIntegralL) / rOutput;
+    rotationalPower = (errorProportionalR + errorDerivativeR + errorIntegralR) / rOutput;
 
     ///////////////////////////////////////
     //////        ending math        //////
     ///////////////////////////////////////
 
-    //PrintToController("Test: ", globalTimer, 0, 0, false);
+    /*PrintToController("Heading: %d", avgBotRotation, 0, 2);
+    PrintToController("Heading: %d", avgBotRotation, 0, 3);
+    PrintToController("ErrorL: %d", errorPorportionalL, 1, 2);
+    PrintToController("ErrorR %d", errorProportionalR, 2, 2);
+    PrintToController("LPower: %d", lateralPower + rotationalPower, 1, 3);
+    PrintToController("RPower: %d", lateralPower - rotationalPower, 2, 3);
+    */
 
-    globalTimer += 1;
+    LDrive.move_velocity((lateralPower + rotationalPower));
+    RDrive.move_velocity((lateralPower - rotationalPower));
 
-    PrintToController("ErrorL: %d", currentErrorL, 1, 1);
-    PrintToController("LPower: %d", lateralPower, 2, 1);
-    PrintToController("ErrorR %d", currentErrorR, 1, 2);
-    PrintToController("RPower: %d", rotationalPower, 2, 2);
-
-    previousErrorL = currentErrorL;
-    previousErrorR = currentErrorR;
-    
-    delay(20);
+    previousErrorL = errorPorportionalL;
+    previousErrorR = errorProportionalR;
   }
 
   // return 1;
@@ -272,6 +272,9 @@ void AdjustFlystick() {
       desiredRotation = 215;
       break;
     case 4:
+      desiredRotation = 265;
+      break;
+    case 5:
       desiredRotation = 305;
       break;
   }
@@ -285,8 +288,10 @@ void AdjustFlystick() {
 
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
+    FlystickStabilizerM.move_velocity(FlystickArmM.get_actual_velocity() / 5);
   } else {
     FlystickArmM.move_velocity(0);
+    FlystickStabilizerM.brake();
   }
 
   previousErrorF = currentErrorF;
@@ -301,9 +306,9 @@ struct AutonCommand {
   int endDelay;
 };
 
-const int totalNumOfCommands = 10; // change depending on the total number of "steps" in your autonomous
-
 // struct AutonCommands CommandList[totalNumOfCommands]; //initializes the list of autonomous commands, must be populated in active code (preauton)
+const int totalNumOfCommands = 2; // change depending on the total number of "steps" in your autonomous
+
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
@@ -324,15 +329,11 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
  
     float speedMult = CurrentCommand.targetSpeed / 100;
     
-    while (currentErrorL >= 5 || currentErrorR >= 2) { 
-      autonPID(); 
-      PrintToController("Step: %d", i, 1, 1);
+    while (errorPorportionalL >= 5 || errorProportionalR >= 2) { 
+      AutonPID(); 
+      PrintToController("Step: %d", i, 1, 2);
+      PrintToController("Step: %d", i, 2, 2);
     }
-
-    //RotPower is incorporated as a positive on the left side, meaning positive angles make righthand turns
-
-    LDrive.set_voltage_limit(speedMult * (lateralPower + rotationalPower));
-    LDrive.set_voltage_limit(speedMult * (lateralPower - rotationalPower));
   }
 }
 
@@ -378,25 +379,10 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
       RDrive.move_velocity(0);
     }
 
-    PrintToController("LDrive: %d", (outputY + outputX), 1, 1);
-    PrintToController("RDrive: %d", (outputY - outputX), 2, 1);
+    //PrintToController("LDrive: %d", (outputY + outputX), 1, 1);
+    //PrintToController("RDrive: %d", (outputY - outputX), 2, 1);
     PrintToController("Funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp)), 1, 2);
     PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 1, 2);
-  
-    /*switch ((globalTimer % 4)) {
-      case 0:
-        if (tabVar == 1) { MainControl.print(1, 0, "LDrive: %d", (outputY + outputX)); } //in units of 1/100th of a degree
-        break;
-      case 1:
-        if (tabVar == 1) { MainControl.print(2, 0, "RDrive: %d", (outputY - outputX)); }
-        break;
-      case 2:
-        if (tabVar == 2) { MainControl.print(1, 0, "funcval %d", AccelSmoothingFunc(1, (globalTimer - YAccelTimeStamp))); }
-        break;
-      case 3:
-        if (tabVar == 2) { MainControl.print(2, 0, "Time: %d", (globalTimer - YAccelTimeStamp)); }
-        break;
-    }*/
 
   prevXVal = XStickPos;
   prevYVal = YStickPos;
@@ -410,9 +396,11 @@ void FlystickControl(int printingRow) { //done
 
   int cooldown = 3;
 
-  //MainControl.print(1, 0, "ArmVal: %d", flystickPos);
-
   //changing the position of the arm
+  /*if (MainControl.get_digital_new_press(DIGITAL_DOWN) && flystickPos == 0) { //dealing with the kickstand, never to be used afterwards
+    flystickPos = 3;
+  }*/
+
   if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown) && flystickPos < maxFlystickPos) {
     flystickPos++;
     lastUpTimestamp = globalTimer;
@@ -441,11 +429,9 @@ void FlystickControl(int printingRow) { //done
   if ((globalTimer - lastSpinTimestamp >= cooldown) && MainControl.get_digital_new_press(DIGITAL_A)) {
     flywheelOn = !flywheelOn;
   }
-
-  if (printingRow != -1) { 
-
-  }
 }
+
+
 
 bool RWingLockedOut = false;
 bool LWingLockedOut = false;
@@ -494,7 +480,6 @@ void WingsControl() { //done
  * to keep execution time for this mode under a few seconds.
  */
   void initialize() {
-	Inertial.reset();
 
   WingPL.set_value(false);
   WingPR.set_value(false); 
@@ -508,7 +493,7 @@ void WingsControl() { //done
   ArmRot.reverse();
 
   defaultArmPos = ArmRot.get_position() / 100;
-  delay(100);
+  //Inertial.set_heading(0);
 }
 
   /**
@@ -529,6 +514,8 @@ void WingsControl() { //done
  */
   void competition_initialize() {}
 
+  vector <double> autonCommands[10];
+
   /**
  * Runs the user autonomous code. This function will be started in its own task
  * with the default priority and stack size whenever the robot is enabled via
@@ -541,7 +528,55 @@ void WingsControl() { //done
  * from where it left off.
 
 \ */
-  void autonomous() {}
+  void autonomous() {
+
+    int autonStep = 0;
+
+    //autonCommands[  ] = { , };
+    autonCommands[ 1 ] = {100, 0};
+    autonCommands[ 2 ] = {0 , 100};
+  //AutonCommand Gfirst = { 100, 0, 127, 500};
+  //AutonCommand Gsecond = { 100, 0, 127, 500};
+
+
+  //AutonCommand GameAuton[totalNumOfCommands] = { Gfirst, Gsecond};
+
+  while (true) {
+
+    vector <double> currentCommand = autonCommands[autonStep];
+
+    desiredDistInDegrees = currentCommand.at(1) * degPerCM;
+    desiredHeading = currentCommand.at(2);
+
+    PrintToController("Heading: %d", Inertial.get_heading(), 1, 1);
+
+    if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
+      tabVar--;
+    } 
+    if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
+      tabVar++;
+    }
+
+    //ExecuteAutonCommands(GameAuton);
+
+    /*if (MainControl.get_digital_new_press(DIGITAL_A)) {
+      autonPIDIsEnabled = !autonPIDIsEnabled;
+    }*/
+
+    PrintToController("Timer: %d", globalTimer, 0, 1);
+    //PrintToController("TargetL: %d", desiredDistInDegrees, 1, 1);
+    PrintToController("TargetR: %d", desiredHeading, 2, 1);
+
+    AutonPID();
+
+    if ((errorPorportionalL <= 5 && errorProportionalR <= 1) || MainControl.get_digital_new_press(DIGITAL_X)) {
+      autonStep++;
+    }
+  
+    globalTimer++;
+    delay(1000 / timerTickRate); 
+    }
+  }
 
   #pragma endregion
 
@@ -560,38 +595,27 @@ void WingsControl() { //done
  */
 void opcontrol() {
 
+  //autonomous();
 
-  delay(300);
-
-  /*if (globalTimer == (timerTickRate / 2)) {
-    flystickPos = 3;
-  }*/
-
-  PrintToController("Timer: %d", globalTimer, 1, -1);
-
-
-  /*  test motors driving autonomously
-    *  FullDrive.move(100);
-    *  delay(300);
-    *  FullDrive.brake();
-    *  delay(300);
-    *  LDrive.move(-100);
-    *  RDrive.move(-100);
-    *  delay(200);
-    *  FullDrive.brake;
-    *  delay(5000);
-    */ 
+  flystickPos = 3;
 
 	while (true) { 
 
-  if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
-    flystickPos++;
-  }
+    PrintToController("Timer: %d", globalTimer, 0, 1);
+    PrintToController("Heading: %d", Inertial.get_heading(), 1, 1);
+    PrintToController("ArmPos: %d", flystickPos, 2, 1);
 
-  DrivingControl(-1);
-  WingsControl();
-  FlystickControl(-1);
-  AdjustFlystick();
+    if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
+      tabVar--;
+    } 
+    if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
+      tabVar++;
+    }
+
+    DrivingControl(-1);
+    WingsControl();
+    FlystickControl(-1);
+    AdjustFlystick();
     
     globalTimer++;
     delay(1000 / timerTickRate);
