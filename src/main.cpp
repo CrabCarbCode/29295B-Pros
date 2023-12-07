@@ -348,7 +348,15 @@ void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) {
 
   int driveMult = 5;
 
+  bool driveReversed = false;
+
   void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
+
+    if (MainControl.get_digital_new_press(DIGITAL_Y)) {
+      driveReversed = !driveReversed;
+      LDrive.set_reversed(!driveReversed);
+      RDrive.set_reversed(driveReversed);
+    }
 
     //Y is forward/back, X is left/right
 
@@ -514,8 +522,6 @@ void WingsControl() { //done
  */
   void competition_initialize() {}
 
-  vector <double> autonCommands[10];
-
   /**
  * Runs the user autonomous code. This function will be started in its own task
  * with the default priority and stack size whenever the robot is enabled via
@@ -528,13 +534,44 @@ void WingsControl() { //done
  * from where it left off.
 
 \ */
+
+  vector <double> autonCommands[20];
+
+
   void autonomous() {
 
     int autonStep = 0;
 
     //autonCommands[  ] = { , };
-    autonCommands[ 1 ] = {100, 0};
-    autonCommands[ 2 ] = {0 , 100};
+    autonCommands[ 1 ] = {0, 0}; //dummy, shooting
+    autonCommands[ 2 ] = {0 , -60}; //experiment
+    autonCommands[ 3 ] = {78 , 0};
+    autonCommands[ 4 ] = {0 , 90};
+    autonCommands[ 5 ] = {297 , 0};
+    autonCommands[ 6 ] = {-58 , 0};
+    autonCommands[ 7 ] = {52 , 0};
+    autonCommands[ 8 ] = {-52 , 0};
+    autonCommands[ 9 ] = {0 , 90};
+    autonCommands[ 10 ] = {70 , 0};
+    autonCommands[ 11 ] = {0 , -90};
+    autonCommands[ 12 ] = {88 , 0};
+    autonCommands[ 13 ] = {0 , -90};
+    autonCommands[ 14 ] = {31 , 0};
+    autonCommands[ 15 ] = {-31 , 0};
+    autonCommands[ 16 ] = {0 , -90};
+    autonCommands[ 17 ] = {90 , 0};
+    autonCommands[ 18 ] = {0 , 90};
+    autonCommands[ 19 ] = {77 , 0};
+    autonCommands[ 20 ] = {0 , 90};
+    autonCommands[ 21 ] = {58 , 0};
+    autonCommands[ 22 ] = {-60 , 0};
+    autonCommands[ 23 ] = {0 , -90};
+    autonCommands[ 24 ] = {50 , 0};
+    autonCommands[ 25 ] = {0 , 90};
+    autonCommands[ 26 ] = {58 , 0};
+    autonCommands[ 27 ] = {0 , 90};
+    autonCommands[ 28 ] = {31 , 0};
+    autonCommands[ 29 ] = {-31 , 0};
   //AutonCommand Gfirst = { 100, 0, 127, 500};
   //AutonCommand Gsecond = { 100, 0, 127, 500};
 
@@ -542,6 +579,18 @@ void WingsControl() { //done
   //AutonCommand GameAuton[totalNumOfCommands] = { Gfirst, Gsecond};
 
   while (true) {
+
+    if (autonStep == 1) {
+      Flywheel.move_velocity(50);
+      if (globalTimer <= (30 * timerTickRate)) {
+        return;
+      }
+
+      Flywheel.move_velocity(0);
+      flystickPos = 1;
+      delay(500);
+      autonStep++;
+    }
 
     vector <double> currentCommand = autonCommands[autonStep];
 
