@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "29295B-Auton",
+    "project_name": "29295B-PID",
     "target": "v5",
     "templates": {
       "kernel": {
@@ -309,9 +309,10 @@
       }
     },
     "upload_options": {
-      "slot": 1,
-      "description": "auton enable",
-      "icon": "clawbot"
+      "slot": 3,
+      "description": "Soupcar's final form",
+      "icon": "X",
+      "after": "none"
     }
   }
 }
