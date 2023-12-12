@@ -20,7 +20,7 @@ Motor FlystickArmM (6, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 Motor FlystickStabilizerM(13, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlywheelM (15, E_MOTOR_GEARSET_18, true, E_MOTOR_ENCODER_DEGREES);
-//Motor FlystickWheelM2 (15, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
+
 
 ADIDigitalOut WingPR ('G');
 ADIDigitalOut WingPL ('H');
@@ -32,4 +32,4 @@ Motor_Group LDrive ({LDriveFrontM, LDriveBackM});
 Motor_Group RDrive ({RDriveFrontM, RDriveBackM});
 
 Motor_Group FullDrive ({LDriveFrontM, LDriveBackM});
-//Motor_Group Flywheel ({FlystickWheelM1, FlystickWheelM2});
+

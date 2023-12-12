@@ -36,7 +36,7 @@ const int timerTickRate = 50; //the number of 'ticks' in one second
 const int tickDelay = 1000 / timerTickRate;
 const int minPrintingDelay = 3; //std::ceil(50 / tickDelay);
 
-const float degPerCM = 360 / (4.1875 * Pi * 2.54); // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
+const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54); // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
 int maxFlywheelSpeed = 39; //flywheel speed as a percent
 int flystickPos = 0; //flystick starts at kickstand position
@@ -126,19 +126,19 @@ float RCTurnDamping = 0.65;
 
   // tuning coefficients
 
-  float lP = 1.0;
-  float lD = 1.2;
+  float lP = 0.9;
+  float lD = 1.1;
   float lI = 0.3;
 
-  float lOutput = 3.0;
+  float lOutput = 1.0;
 
   float rP = 0.7;
   float rD = 1.0;
   float rI = 0.4;
 
-  float rOutput = 2.0;
+  float rOutput = 0.5;
 
-  int integralBoundL = 3 * degPerCM;
+  int integralBoundL = 1 * degPerCM;
   int integralBoundR = 2;
 
   // Storage variables for Lateral (forward/back) PID
@@ -169,7 +169,7 @@ float RCTurnDamping = 0.65;
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
-void AutonPID() {
+int AutonPID() {
 
   if (autonPIDIsEnabled) {
 
@@ -188,7 +188,6 @@ void AutonPID() {
 
     // filters out the integral at long ranges (if |error| < constant upper limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-
     if (fabs(errorProportionalL) < integralBoundL) { 
       errorIntegralL += lI * (errorProportionalL);
     }
@@ -202,14 +201,13 @@ void AutonPID() {
     //////      Rotational PID       //////
     ///////////////////////////////////////
 
-    int avgBotRotation = Inertial.get_heading(); //LDriveFrontM.get_position() - RDriveFrontM.get_position();
+    int avgBotRotation = heading; //LDriveFrontM.get_position() - RDriveFrontM.get_position();
 
     errorProportionalR = rP * (desiredHeading - avgBotRotation);   // proportional error
     errorDerivativeR = rD * (errorProportionalR - previousErrorR); // derivative of error
 
     // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-
     if (fabs(errorProportionalR) < integralBoundR) { 
       errorIntegralR += rI * (errorProportionalR);
     }
@@ -223,17 +221,20 @@ void AutonPID() {
     //////        ending math        //////
     ///////////////////////////////////////
 
-    PrintToController("LOutput: %d", (lateralPower + rotationalPower), 1, 2); //lateralPower + rotationalPower
-    PrintToController("ROutput: %d", (lateralPower - rotationalPower), 2, 2);
+    PrintToController("Heading: %d", heading, 0, 1);
+    PrintToController("MPos: %d", avgMotorPosition, 1, 1);
+    PrintToController("DesPos: %d", desiredHeading, 2, 1);
+    //PrintToController("LOutput: %d", (lateralPower + rotationalPower), 1, 1); //lateralPower + rotationalPower
+    PrintToController("ROutput: %d", (lateralPower - rotationalPower), 2, 1);
 
-    //LDrive.move_velocity((lateralPower + rotationalPower));
-    //RDrive.move_velocity((lateralPower - rotationalPower));
+    LDrive.move_velocity((lateralPower + rotationalPower));
+    RDrive.move_velocity((lateralPower - rotationalPower));
 
     previousErrorL = errorProportionalL;
     previousErrorR = errorProportionalR;
   }
 
-  //return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 2) ? true : false; //return true if done movement
+  return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 2) ? true : false; //return true if done movement
 }
 
 #pragma endregion // end of PID block
@@ -259,7 +260,7 @@ void AdjustFlystick() {
   int deadzoneF = 0.3;
 
   //responsible for changing/maintaining the position of the flystick using a PD controlelr
-  //no Integral because fuck you
+  //no Integral because y'know
 
   int desiredRotation;
   float armPos = ArmRot.get_angle() / 100;
@@ -320,31 +321,6 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
-void ExecuteAutonCommands(struct AutonCommand CurrentCommandList[]) { 
-  //responsible for unpacking, tracking and completing each "stage" of the selected autonomous routine
-
-  // 360 degrees = circumferance cm
-
-  for (int i = 0; ++i >= totalNumOfCommands;) {
-
-    //PrintToController("Executing Step: ", i, 0, 0, true);
-
-    struct AutonCommand CurrentCommand = CurrentCommandList[i];
-
-    // setting the PID's target values for this stage of the autonomous routine
-    desiredDist
-     = CurrentCommand.desiredDistInCM * degPerCM;
-    desiredHeading = CurrentCommand.desiredHeading;
- 
-    float speedMult = CurrentCommand.targetSpeed / 100;
-    
-    while (errorProportionalL >= 5 || errorProportionalR >= 2) { 
-      AutonPID(); 
-      PrintToController("Step: %d", i, 1, 2);
-      PrintToController("Step: %d", i, 2, 2);
-    }
-  }
-}
 
 #pragma endregion // end of AutonFunctions
 
@@ -449,35 +425,36 @@ bool LWingLockedOut = false;
 
 void WingsControl() { //done
 
-  if (MainControl.get_digital(DIGITAL_L1) && !LWingLockedOut) {
+  /*if (MainControl.get_digital(DIGITAL_L2) && !LWingLockedOut) {
     WingPL.set_value(true);
   } else if (!LWingLockedOut) {
     WingPL.set_value(false);
   }
 
-  if (MainControl.get_digital(DIGITAL_R1) && !RWingLockedOut) {
+  if (MainControl.get_digital(DIGITAL_R2) && !RWingLockedOut) {
     WingPR.set_value(true);
   } else if (!RWingLockedOut) {
     WingPR.set_value(false);
-  }
+  }*/
 
-  if (MainControl.get_digital_new_press(DIGITAL_L2)) {
+  if (MainControl.get_digital_new_press(DIGITAL_L1)) {
     LWingLockedOut = !LWingLockedOut;
     WingPL.set_value(LWingLockedOut);
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_R2)) {
+  if (MainControl.get_digital_new_press(DIGITAL_R1)) {
     RWingLockedOut = !RWingLockedOut;
     WingPR.set_value(RWingLockedOut);
   }
 }
 
-
   #pragma endregion // end of UserControlFunctions
 
 #pragma endregion // end of Bot controlling functions
 
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 int mStartPos;
 
@@ -544,7 +521,7 @@ int mStartPos;
 
   #pragma endregion
 
-  vector <float> autonCommands[34];
+  vector <float> autonCommands[50];
   int stageChangeTimeStamp = 0;
 
   void skillsAuton(bool red) {
@@ -709,40 +686,44 @@ int mStartPos;
 
   void tunePID() {
     
-    desiredDist = 50 * degPerCM;
-    desiredHeading = 0;
+    desiredDist = 0 * degPerCM;
+    desiredHeading = 90;
 
-    lP = 1.0;
-    lD = 1.2;
-    lI = 0.3;
-
-    rP = 0.7;
-    rD = 1.0;
-    rI = 0.4;
+    rP = 2.2;
+    rD = 2.5;
+    rI = 0.9;
 
     while (true) {
 
       lcdControl();
 
       if (MainControl.get_digital_new_press(DIGITAL_B)) {
-        lP += adjustFactor;
+        rP += adjustFactor;
       }
       if (MainControl.get_digital_new_press(DIGITAL_Y)) {
-        lD += adjustFactor;
+        rD += adjustFactor;
       }
       if (MainControl.get_digital_new_press(DIGITAL_A)) {
-        lI += adjustFactor;
+        rI += adjustFactor;
       }
 
       if (MainControl.get_digital_new_press(DIGITAL_X)) {
         adjustFactor = (adjustFactor > 0) ? -0.1 : 0.1;
       }
 
-      PrintToController("PVar: %d", lP * 10, 0, 1);
-      PrintToController("IVar: %d", lI * 10, 1, 1);
-      PrintToController("DVar: %d", lD * 10, 2, 1);
+      PrintToController("PVar: %d", rP * 10, 0, 2);
+      PrintToController("IVar: %d", rI * 10, 1, 2);
+      PrintToController("DVar: %d", rD * 10, 2, 2);
 
       AutonPID();
+
+      if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {
+        //desiredDist = 50 * degPerCM;
+        desiredHeading = 90;
+      } else {
+        //desiredDist = -50 * degPerCM;
+        desiredHeading = -90;
+      }
 
       globalTimer++;
       delay(tickDelay);
