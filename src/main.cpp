@@ -163,11 +163,12 @@ float RCTurnDamping = 0.65;
   // in such a way that only one set of vars is needed to produce both outputs. however, readability is nice
   // change if memory ever becomes an issue
 
-  float linearDist = -45.45;
 
   #pragma endregion //end of PID variable declaration
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+
+const float autonDriveMult = 1.0;
 
 int AutonPID() {
 
@@ -221,20 +222,17 @@ int AutonPID() {
     //////        ending math        //////
     ///////////////////////////////////////
 
-    PrintToController("Heading: %d", heading, 0, 1);
-    PrintToController("MPos: %d", avgMotorPosition, 1, 1);
-    PrintToController("DesPos: %d", desiredHeading, 2, 1);
     //PrintToController("LOutput: %d", (lateralPower + rotationalPower), 1, 1); //lateralPower + rotationalPower
-    PrintToController("ROutput: %d", (lateralPower - rotationalPower), 2, 1);
+    //PrintToController("ROutput: %d", (lateralPower - rotationalPower), 2, 1);
 
-    LDrive.move_velocity((lateralPower + rotationalPower));
-    RDrive.move_velocity((lateralPower - rotationalPower));
+    LDrive.move_velocity(autonDriveMult * (lateralPower + rotationalPower));
+    RDrive.move_velocity(autonDriveMult * (lateralPower - rotationalPower));
 
     previousErrorL = errorProportionalL;
     previousErrorR = errorProportionalR;
   }
 
-  return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 2) ? true : false; //return true if done movement
+  return (fabs(errorProportionalL) <= (1 * degPerCM) && fabs(errorProportionalR) <= 0.75) ? true : false; //return true if done movement
 }
 
 #pragma endregion // end of PID block
@@ -244,8 +242,6 @@ int AutonPID() {
 #pragma region ActualCompetitionFunctions
 
 #pragma region AutonFunctions //Functions for autonomous control
-
-                                                         //CHANGE VALUES THEY ARE FILLER
 
 float previousErrorF = 0; //previous error variable for the flystick arm
 
@@ -271,6 +267,7 @@ void AdjustFlystick() {
       break;
     case 1:
       desiredRotation = 130;
+      maxFlywheelSpeed = 90;
       break;
     case 2:
       desiredRotation = 160;
@@ -278,7 +275,7 @@ void AdjustFlystick() {
       break;
     case 3:
       desiredRotation = 215;
-      maxFlywheelSpeed = 55;
+      maxFlywheelSpeed = 70;
       break;
     case 4:
       desiredRotation = 265;
@@ -297,10 +294,8 @@ void AdjustFlystick() {
 
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
-    FlystickStabilizerM.move_velocity(FlystickArmM.get_actual_velocity() / 5);
   } else {
     FlystickArmM.move_velocity(0);
-    FlystickStabilizerM.brake();
   }
 
   previousErrorF = currentErrorF;
@@ -425,24 +420,12 @@ bool LWingLockedOut = false;
 
 void WingsControl() { //done
 
-  /*if (MainControl.get_digital(DIGITAL_L2) && !LWingLockedOut) {
-    WingPL.set_value(true);
-  } else if (!LWingLockedOut) {
-    WingPL.set_value(false);
-  }
-
-  if (MainControl.get_digital(DIGITAL_R2) && !RWingLockedOut) {
-    WingPR.set_value(true);
-  } else if (!RWingLockedOut) {
-    WingPR.set_value(false);
-  }*/
-
-  if (MainControl.get_digital_new_press(DIGITAL_L1)) {
+  if (MainControl.get_digital_new_press(DIGITAL_L2)) {
     LWingLockedOut = !LWingLockedOut;
     WingPL.set_value(LWingLockedOut);
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_R1)) {
+  if (MainControl.get_digital_new_press(DIGITAL_R2)) {
     RWingLockedOut = !RWingLockedOut;
     WingPR.set_value(RWingLockedOut);
   }
@@ -529,8 +512,11 @@ int mStartPos;
     //autonCommands[  ] = { , };
 
     autonCommands[ 0 ] = {0, 0};
-    autonCommands[ 1 ] = {10, 0}; //dummy, shooting
-    autonCommands[ 2 ] = {-10, 0};
+    autonCommands[ 1 ] = {50, 0}; //dummy, shooting
+    autonCommands[ 2 ] = {0, 90};
+    autonCommands[ 3 ] = {50, 0};
+
+    /*
     autonCommands[ 3 ] = {0, 90}; //experiment autonCommands[ 2 ] = {0 , -60};
     autonCommands[ 4 ] = {78 , 0};
     autonCommands[ 5 ] = {0 , 90};
@@ -558,107 +544,24 @@ int mStartPos;
     autonCommands[ 27 ] = {58 , 0};
     autonCommands[ 28 ] = {0 , 90};
     autonCommands[ 29 ] = {31 , 0};
-    autonCommands[ 31 ] = {-31 , 0};
+    autonCommands[ 31 ] = {-31 , 0};*/
   }
 
-  int phase = 1;
+  int stepChangeCooldown = timerTickRate / 2;
+  int stepChangeTimeStamp = 0;
 
   void autonomous() {
 
-    FlywheelFWD = !FlywheelFWD;
-    FlywheelM.set_reversed(FlywheelFWD);
-
-    flywheelOn = true;
-
-    desiredDist = 15 * degPerCM;
-    desiredHeading = 0;
-
-    while (globalTimer <= (15 * timerTickRate)) {
-
-      float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
-
-      PrintToController("Timer: %d", globalTimer, 0, 1);
-
-      PrintToController("Head: %d", inerHeading, 1, 2);
-      PrintToController("ErrorR: %d", errorProportionalR, 2, 2); 
-
-      lcdControl();
-
-      if ((LDriveFrontM.get_position() - mStartPos) <= (30 * degPerCM) && globalTimer <= (2 * timerTickRate)) {
-
-        PrintToController("Step: %d", phase, 1, 1); 
-        PrintToController("MPos: %d", LDriveFrontM.get_position() - mStartPos, 2, 3); 
-        
-        //LDrive.move_velocity(60 * 6);
-        //RDrive.move_velocity(60 * 6);
-
-      } else if ((LDriveFrontM.get_position() - mStartPos) >= (-70 * degPerCM) && globalTimer <= (5 * timerTickRate)) {
-
-        flywheelOn = false;
-        phase = true;
-
-        PrintToController("Step: %d", phase, 1, 1); 
-        PrintToController("MPos: %d", LDriveFrontM.get_position() - mStartPos, 2, 3); 
-
-        desiredDist = -50 * degPerCM;
-        
-        //LDrive.move_velocity(-80 * 6);
-        //RDrive.move_velocity(-80 * 6);
-
-      } else {
-
-        PrintToController("MPos: %d", 3, 1, 1); 
-        globalTimer = (15 * timerTickRate);
-        return;
-
-      }
-
-      switch (flywheelOn) {
-        case 0:
-          FlywheelM.move_velocity(0);
-          break;
-        case 1:
-          FlywheelM.move_velocity(maxFlywheelSpeed * 6); 
-          break;
-      }
-
-      AutonPID();
-
-      globalTimer++;
-      delay(tickDelay);
-    }
-  }
-
-
-  void autonomous2() {
-
-    //skillsAuton(true);
+    skillsAuton(true);
 
     int autonStep = 0;
+    
     FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
     while (true) {
 
       lcdControl();
 
-      AutonPID();
-
-      int done = 0;
-
-      if (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 2) {
-        done = 1;
-      } else {
-        done = 0;
-      }
-
-
-      if (MainControl.get_digital_new_press(DIGITAL_X)) {
-        autonStep++;
-
-        vector <float> currentCommand = autonCommands[autonStep];
-        desiredDist = currentCommand.at(0) * degPerCM;
-        desiredHeading += currentCommand.at(1);
-      }
 
       float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
 
@@ -666,14 +569,28 @@ int mStartPos;
       PrintToController("DesDist: %d", desiredDist, 1, 1);
       PrintToController("DesHead: %d", desiredHeading, 2, 1);
 
-      PrintToController("Complete?: %d", done, 0, 2);
+      PrintToController("Complete?: %d", AutonPID(), 0, 2);
       PrintToController("Head: %d", inerHeading, 1, 2);
       PrintToController("ErrorR: %d", errorProportionalR, 2, 2); 
 
-      PrintToController("Complete?: %d", done, 0, 3);
-      PrintToController("Head: %d", linearDist, 1, 2);
-      PrintToController("ErrorR: %d", errorProportionalR, 2, 2); 
+      PrintToController("Complete?: %d", AutonPID(), 0, 3);
+      PrintToController("TargDist: %d", desiredDist, 1, 3);
+      PrintToController("ErrorL: %d", errorProportionalL, 2, 3); 
 
+
+      if ((MainControl.get_digital_new_press(DIGITAL_X) || AutonPID() == 1) && (timeSincePoint(stepChangeTimeStamp) >= stepChangeCooldown)) { //MainControl.get_digital_new_press(DIGITAL_X) || 
+        autonStep++;
+
+        stepChangeTimeStamp = globalTimer;
+
+        vector <float> currentCommand = autonCommands[autonStep];
+        desiredDist += currentCommand.at(0) * degPerCM;
+        desiredHeading += currentCommand.at(1);
+
+        delay (3000);
+      } else if (autonStep >= 4) {
+        return;
+      }
 
       globalTimer++;
       delay(tickDelay);
@@ -730,6 +647,16 @@ int mStartPos;
     }
   }
 
+  void minAuton() {
+
+    flystickPos = 3;
+
+    while (true) {
+      AdjustFlystick();
+      FlywheelM.move_velocity(-180);
+    }
+  }
+
 /**
  * Runs the operator control code. This function will be started in its own task
  * with the default priority and stack size whenever the robot is enabled via
@@ -745,13 +672,15 @@ int mStartPos;
  */
 void opcontrol() {
 
-  tunePID();
+  //minAuton();
 
-  /*autonomous();
+  //tunePID();
+
+  autonomous();
 
   FlywheelM.set_reversed(true);
 
-  flywheelOn = false; */
+  flywheelOn = false;
   
   /*flystickPos = 3;
 

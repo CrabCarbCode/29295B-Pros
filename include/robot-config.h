@@ -17,10 +17,8 @@ Motor RDriveMidM (5, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 Motor RDriveBackM (9, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlystickArmM (6, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
-Motor FlystickStabilizerM(13, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlywheelM (15, E_MOTOR_GEARSET_18, true, E_MOTOR_ENCODER_DEGREES);
-
 
 ADIDigitalOut WingPR ('G');
 ADIDigitalOut WingPL ('H');
