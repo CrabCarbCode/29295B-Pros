@@ -127,19 +127,19 @@ float RCTurnDamping = 0.65;
   // tuning coefficients
 
   float lP = 0.9;
-  float lD = 1.1;
-  float lI = 0.3;
+  float lD = 1.4;
+  float lI = 0.0;
 
   float lOutput = 1.0;
 
-  float rP = 0.7;
-  float rD = 1.0;
-  float rI = 0.4;
+  float rP = 1.2;
+  float rD = 0.5;
+  float rI = 0.0;
 
-  float rOutput = 0.5;
+  float rOutput = 2.7;
 
-  int integralBoundL = 1 * degPerCM;
-  int integralBoundR = 2;
+  int integralBoundL = 10 * degPerCM;
+  int integralBoundR = 5;
 
   // Storage variables for Lateral (forward/back) PID
 
@@ -196,7 +196,7 @@ int AutonPID() {
       errorIntegralL = 0;
     }
 
-    lateralPower = (errorProportionalL + errorDerivativeL + errorIntegralL) / lOutput;
+    lateralPower = (errorProportionalL + errorDerivativeL + errorIntegralL) * lOutput;
 
     ///////////////////////////////////////
     //////      Rotational PID       //////
@@ -216,7 +216,7 @@ int AutonPID() {
       errorIntegralR = 0;
     }
 
-    rotationalPower = (errorProportionalR + errorDerivativeR + errorIntegralR) / rOutput;
+    rotationalPower = (errorProportionalR + errorDerivativeR + errorIntegralR) * rOutput;
 
     ///////////////////////////////////////
     //////        ending math        //////
@@ -326,12 +326,12 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
   int XAccelTimeStamp = 0;
   int YAccelTimeStamp = 0;
 
-  int driveMult = 6;
+  int driveMult = 5.5;
 
   bool driveReversed = false;
   int reverseDrive = 1;
 
-  void DrivingControl(int8_t printingRow) { //resoponsible for user control of the drivetrain
+  void DrivingControl(int8_t printingPage) { //resoponsible for user control of the drivetrain
 
     if (MainControl.get_digital_new_press(DIGITAL_Y)) {
       driveReversed = !driveReversed;
@@ -360,25 +360,32 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
       XAccelTimeStamp = globalTimer;
     }
 
-    int outputY = YStickPos; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-    int outputX = XStickPos; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+    int outputY = YStickPos / 127; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+    int outputX = XStickPos / 155; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+
 
     if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
-      LDrive.move_velocity(driveMult * (outputY + outputX) * fabs(0.6 * (outputY + outputX)));
-      RDrive.move_velocity(driveMult * (outputY - outputX) * fabs(0.6 * (outputY - outputX)));
+      LDrive.move_velocity(driveMult * (outputY + outputX) * (fabs((outputY + outputX) / 127)) + 1);
+      RDrive.move_velocity(driveMult * (outputY - outputX) * (fabs((outputY - outputX) / 127)) + 1);
     } else {
       LDrive.move_velocity(0);
       RDrive.move_velocity(0);
     }
     
-    PrintToController("Funcval %d", AccelSmoothingFunc(1, 100 * (globalTimer - YAccelTimeStamp)), 1, 2);
-    PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 1, 2);
+    PrintToController("LDrive: %d", (driveMult * (outputY + outputX) * (fabs((outputY + outputX) / 127)) + 1), 1, printingPage);
+    PrintToController("RDrive: %d", (driveMult * (outputY + outputX) * (fabs((outputY - outputX) / 127)) + 1), 2, printingPage);
+
+    PrintToController("YOut %d", outputY, 1, printingPage + 1);
+    PrintToController("XOut %d", outputX, 2, printingPage + 1);
+
+    PrintToController("Funcval %d", AccelSmoothingFunc(1, 100 * (globalTimer - YAccelTimeStamp)), 1, printingPage + 2);
+    PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 2, printingPage + 2);
 
   prevXVal = XStickPos;
   prevYVal = YStickPos;
 }  
 
-bool FlywheelFWD = true;
+bool FlywheelReversed = false;
 bool flywheelOn = false;
 
 void FlystickControl(int printingRow) { //done
@@ -397,8 +404,8 @@ void FlystickControl(int printingRow) { //done
   }
 
   if (MainControl.get_digital_new_press(DIGITAL_B)) {
-    FlywheelFWD = !FlywheelFWD;
-    FlywheelM.set_reversed(FlywheelFWD);
+    FlywheelReversed = !FlywheelReversed;
+    FlywheelM.set_reversed(FlywheelReversed);
   }
 
   switch (flywheelOn) {
@@ -504,65 +511,76 @@ int mStartPos;
 
   #pragma endregion
 
+  #pragma region autonRoutes
+
   vector <float> autonCommands[50];
-  int stageChangeTimeStamp = 0;
 
   void skillsAuton(bool red) {
 
-    //autonCommands[  ] = { , };
+    int mult = red ? 1 : -1;
 
-    autonCommands[ 0 ] = {0, 0};
-    autonCommands[ 1 ] = {50, 0}; //dummy, shooting
-    autonCommands[ 2 ] = {0, 90};
-    autonCommands[ 3 ] = {50, 0};
+    //autonCommands[  ] = { , * mult};
 
-    /*
-    autonCommands[ 3 ] = {0, 90}; //experiment autonCommands[ 2 ] = {0 , -60};
-    autonCommands[ 4 ] = {78 , 0};
-    autonCommands[ 5 ] = {0 , 90};
-    autonCommands[ 6 ] = {297 , 0};
-    autonCommands[ 7 ] = {-58 , 0};
-    autonCommands[ 8 ] = {52 , 0};
-    autonCommands[ 9 ] = {-52 , 0};
-    autonCommands[ 10 ] = {0 , 90};
-    autonCommands[ 11 ] = {70 , 0};
-    autonCommands[ 12 ] = {0 , -90};
-    autonCommands[ 13 ] = {88 , 0};
-    autonCommands[ 14 ] = {0 , -90};
-    autonCommands[ 15 ] = {31 , 0};
-    autonCommands[ 16 ] = {-31 , 0};
-    autonCommands[ 17 ] = {0 , -90};
-    autonCommands[ 18 ] = {90 , 0};
-    autonCommands[ 19 ] = {0 , 90};
-    autonCommands[ 20 ] = {77 , 0};
-    autonCommands[ 21 ] = {0 , 90};
-    autonCommands[ 22 ] = {58 , 0};
-    autonCommands[ 23 ] = {-60 , 0};
-    autonCommands[ 24 ] = {0 , -90};
-    autonCommands[ 25 ] = {50 , 0};
-    autonCommands[ 26 ] = {0 , 90};
-    autonCommands[ 27 ] = {58 , 0};
-    autonCommands[ 28 ] = {0 , 90};
-    autonCommands[ 29 ] = {31 , 0};
-    autonCommands[ 31 ] = {-31 , 0};*/
+    autonCommands[ 0 ] = {0, 0 * mult};
+    autonCommands[ 1 ] = {0, 0 * mult};
+    /*autonCommands[ 2 ] = {0 , 45 * mult};
+    autonCommands[ 3 ] = {40 , 0 * mult};*/
+
   }
 
-  int stepChangeCooldown = timerTickRate / 2;
-  int stepChangeTimeStamp = 0;
+  void offenceAuton(bool red) {
+
+    int mult = red ? 1 : -1;
+
+    //autonCommands[  ] = { , * mult};
+
+  }
+
+  void defenceAuton(bool red) {
+
+    int mult = red ? 1 : -1;
+
+    //autonCommands[  ] = { , * mult};
+
+  }
+
+  #pragma endregion
+
+  int stepChangeCooldown = timerTickRate / 4; //sets the minimum delay between auton steps, default 0.25 seconds
+  int stepChangeTimeStamp = 0; //stores the time of the last step change
 
   void autonomous() {
 
     skillsAuton(true);
 
-    int autonStep = 0;
+    int autonStep = 0; //tracks which step of the auton the program is on
+    int shootOrb = 1; //set to -1 for non-shooting autons
     
-    FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
     while (true) {
 
-      lcdControl();
+      if (autonStep == shootOrb) { //handles the shooting stage of autonomous
+        flystickPos = 3;
 
+        while (globalTimer <= (15 * timerTickRate)) { //objective timer, starts relative to skills run start
 
+          //speen
+          AdjustFlystick();
+          FlywheelM.move_velocity(-180);
+
+          globalTimer++;
+          delay(tickDelay);
+        }
+
+        autonStep++;
+        flywheelOn = false;
+        flystickPos = 1;
+      }
+
+      lcdControl(); //allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
+      AdjustFlystick(); //manages the height of the flystick arm
+
+      //diagnostics, not neccessary
       float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
 
       PrintToController("Step: %d", autonStep, 0, 1);
@@ -578,7 +596,7 @@ int mStartPos;
       PrintToController("ErrorL: %d", errorProportionalL, 2, 3); 
 
 
-      if ((MainControl.get_digital_new_press(DIGITAL_X) || AutonPID() == 1) && (timeSincePoint(stepChangeTimeStamp) >= stepChangeCooldown)) { //MainControl.get_digital_new_press(DIGITAL_X) || 
+      if ((MainControl.get_digital_new_press(DIGITAL_X)  || AutonPID() == 1) && (timeSincePoint(stepChangeTimeStamp) >= stepChangeCooldown)) { //MainControl.get_digital_new_press(DIGITAL_X) || 
         autonStep++;
 
         stepChangeTimeStamp = globalTimer;
@@ -587,7 +605,6 @@ int mStartPos;
         desiredDist += currentCommand.at(0) * degPerCM;
         desiredHeading += currentCommand.at(1);
 
-        delay (3000);
       } else if (autonStep >= 4) {
         return;
       }
@@ -599,16 +616,12 @@ int mStartPos;
 
 
 
-  float adjustFactor = 0.1;
+  float adjustFactor = 0.1; //the amount PID variables change by during manual tuning
 
   void tunePID() {
     
     desiredDist = 0 * degPerCM;
-    desiredHeading = 90;
-
-    rP = 2.2;
-    rD = 2.5;
-    rI = 0.9;
+    desiredHeading = 0;
 
     while (true) {
 
@@ -625,7 +638,7 @@ int mStartPos;
       }
 
       if (MainControl.get_digital_new_press(DIGITAL_X)) {
-        adjustFactor = (adjustFactor > 0) ? -0.1 : 0.1;
+        adjustFactor *= -1;
       }
 
       PrintToController("PVar: %d", rP * 10, 0, 2);
@@ -634,7 +647,9 @@ int mStartPos;
 
       AutonPID();
 
-      if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {
+      if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) { //cycles between states to allow for real time tuning
+        //comment out either heading or dist to test the other
+
         //desiredDist = 50 * degPerCM;
         desiredHeading = 90;
       } else {
@@ -676,20 +691,17 @@ void opcontrol() {
 
   //tunePID();
 
-  autonomous();
+  //autonomous(); //temporarily running autonomous in usercontrol
 
-  FlywheelM.set_reversed(true);
+  //FlywheelM.set_reversed(false);
 
-  flywheelOn = false;
+  //flywheelOn = false;
   
-  /*flystickPos = 3;
+  /*flystickPos = 3; //ACTUAL DRIVE CODE, UNCOMMENT IF UPLOADING DRIVE
 
-	while (true) { 
+	while (true) {  
 
-    float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
-    PrintToController("Head: %d", inerHeading, 1, 2);
-
-    DrivingControl(-1);
+    DrivingControl(1);
     WingsControl();
     FlystickControl(-1);
     AdjustFlystick();
