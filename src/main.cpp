@@ -360,23 +360,26 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
       XAccelTimeStamp = globalTimer;
     }
 
-    int outputY = YStickPos / 127; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-    int outputX = XStickPos / 155; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+    int YStickPercent = YStickPos / 127; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+    int XStickPercent = XStickPos / 127; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+
+    int outputL = 12 + driveMult * (YStickPercent + XStickPercent) * (fabs((YStickPercent + XStickPercent) / 100));
+    int outputR = 12 + driveMult * (YStickPercent - XStickPercent) * (fabs((YStickPercent - XStickPercent) / 100));
 
 
     if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
-      LDrive.move_velocity(driveMult * (outputY + outputX) * (fabs((outputY + outputX) / 127)) + 1);
-      RDrive.move_velocity(driveMult * (outputY - outputX) * (fabs((outputY - outputX) / 127)) + 1);
+      LDrive.move_velocity(outputL);
+      RDrive.move_velocity(outputR);
     } else {
       LDrive.move_velocity(0);
       RDrive.move_velocity(0);
     }
     
-    PrintToController("LDrive: %d", (driveMult * (outputY + outputX) * (fabs((outputY + outputX) / 127)) + 1), 1, printingPage);
-    PrintToController("RDrive: %d", (driveMult * (outputY + outputX) * (fabs((outputY - outputX) / 127)) + 1), 2, printingPage);
+    PrintToController("LDrive: %d", -1, 1, printingPage);
+    PrintToController("RDrive: %d", -1, 2, printingPage);
 
-    PrintToController("YOut %d", outputY, 1, printingPage + 1);
-    PrintToController("XOut %d", outputX, 2, printingPage + 1);
+    PrintToController("YOut %d", YStickPercent, 1, printingPage + 1);
+    PrintToController("XOut %d", XStickPercent, 2, printingPage + 1);
 
     PrintToController("Funcval %d", AccelSmoothingFunc(1, 100 * (globalTimer - YAccelTimeStamp)), 1, printingPage + 2);
     PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 2, printingPage + 2);
@@ -486,28 +489,76 @@ int mStartPos;
   void disabled() {}
 
   /**
- * Runs after initialize(), and before autonomous when connected to the Field
- * Management System or the VEX Competition Switch. This is intended for
- * competition-specific initialization routines, such as an autonomous selector
- * on the LCD.
- *
- * This task will exit when the robot is enabled and autonomous or opcontrol
- * starts.
- */
-  void competition_initialize() {}
+   * Runs after initialize(), and before autonomous when connected to the Field
+   * Management System or the VEX Competition Switch. This is intended for
+   * competition-specific initialization routines, such as an autonomous selector
+   *   on the LCD.
+   * 
+   * This task will exit when the robot is enabled and autonomous or opcontrol
+   * starts.
+  */
 
-  /**
- * Runs the user autonomous code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the autonomous
- * mode. Alternatively, this function may be called in initialize or opcontrol
- * for non-competition testing purposes.
- *
- * If the robot is disabled or communications is lost, the autonomous task
- * will be stopped. Re-enabling the robot will restart the task, not re-start it
- * from where it left off.
+  int selectorStage = 0;
+  int selectedRoute = 1;
 
-\ */
+  void competition_initialize() { //auton selector
+
+    while (true) {
+
+      lcdControl();
+
+      switch (selectorStage) {
+
+      case 0:
+
+      PrintToController("Select Auton Route: (Up/Down, A) %d", 0, 0, 1);
+      PrintToController("Sk: 1  Off: 2  Def: 3  N/A: 4    %d", 0, 1, 1);
+      PrintToController("Current Selection: %d", selectedRoute, 2, 1);
+
+      if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 3) {
+        selectedRoute++;
+      }
+
+      if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute > 1) {
+        selectedRoute++;
+      }
+
+      if (MainControl.get_digital_new_press(DIGITAL_A)) {
+        selectorStage++;
+      }
+
+      break;
+
+
+
+      case 1:
+
+      if (MainControl.get_digital_new_press(DIGITAL_A)) {
+        selectorStage++;
+
+        PrintToController("Auton %d Selected", selectedRoute, 1, 1);
+        delay (300);
+      }
+
+      PrintToController("Confirm: (A)                       %d", 0, 1, 1);
+      PrintToController("Reselect: (B)                      %d", 0, 2, 1);
+
+        switch (selectedRoute) {
+        case 1: 
+        PrintToController("Current Route: Skills            %d", 0, 0, 1);
+        break;
+        case 2:
+        PrintToController("Current Route: Offence           %d", 0, 0, 1);
+        break;
+        case 3:
+        PrintToController("Current Route: Defence           %d", 0, 0, 1);
+        break;
+        }
+
+      break;
+      }
+    }
+  }
 
   #pragma endregion
 
@@ -515,32 +566,31 @@ int mStartPos;
 
   vector <float> autonCommands[50];
 
-  void skillsAuton(bool red) {
+  void skillsAuton() {
 
-    int mult = red ? 1 : -1;
+    //autonCommands[  ] = { , };
 
-    //autonCommands[  ] = { , * mult};
-
-    autonCommands[ 0 ] = {0, 0 * mult};
-    autonCommands[ 1 ] = {0, 0 * mult};
-    /*autonCommands[ 2 ] = {0 , 45 * mult};
-    autonCommands[ 3 ] = {40 , 0 * mult};*/
+    autonCommands[ 0 ] = {0, 0};
+    autonCommands[ 1 ] = {0, 0};
+    /*autonCommands[ 2 ] = {0 , 45};
+    autonCommands[ 3 ] = {40 , 0};*/
 
   }
 
-  void offenceAuton(bool red) {
+  void offenceAuton() { //starting on the enemy side of the field (no match loading)
 
-    int mult = red ? 1 : -1;
-
-    //autonCommands[  ] = { , * mult};
+    //autonCommands[  ] = { , };
 
   }
 
-  void defenceAuton(bool red) {
+  void defenceAuton() { //starting on the team side of the field (match loading)
 
-    int mult = red ? 1 : -1;
+    //autonCommands[  ] = { , };
 
-    //autonCommands[  ] = { , * mult};
+    // BEN READ ME
+    // try to make this by copying the start of our skills auton where we ram the preload under the net
+    // but add a slight "back up to hit the green triball that starts under the horizontal bar"
+    // the above stuff should be pretty easy, then maybe try to ram a few over the middle if you have the time (low priority)
 
   }
 
@@ -551,7 +601,20 @@ int mStartPos;
 
   void autonomous() {
 
-    skillsAuton(true);
+    selectedRoute = 1; //change this to manually select the auton route being tested
+    //hopefully my auton selector works but I dont want you to have to deal with untested code
+
+    switch (selectedRoute) {
+      case 1:
+        skillsAuton();
+        break;
+      case 2:
+        offenceAuton();
+        break;
+      case 3: 
+        defenceAuton();
+        break;
+    }
 
     int autonStep = 0; //tracks which step of the auton the program is on
     int shootOrb = 1; //set to -1 for non-shooting autons
@@ -662,7 +725,7 @@ int mStartPos;
     }
   }
 
-  void minAuton() {
+  void minAuton() { // minimum viable "turn on flystick" auton
 
     flystickPos = 3;
 
@@ -687,11 +750,7 @@ int mStartPos;
  */
 void opcontrol() {
 
-  //minAuton();
-
-  //tunePID();
-
-  //autonomous(); //temporarily running autonomous in usercontrol
+  //autonomous(); //temporarily running autonomous in usercontrol, uncomment to allow for autonomous testing
 
   //FlywheelM.set_reversed(false);
 
