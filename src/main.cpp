@@ -15,8 +15,6 @@ using namespace std;
 
 #pragma region NotesMaybeReadMe
 
-
-
 // here to document weird quirks of V5, VSCode, or this particular program
 
 /*
@@ -31,6 +29,9 @@ Strings do not work in vex without external library shenanigans
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
 
+int mStartPosL;
+int mStartPosR;
+
 int globalTimer = 0;
 const int timerTickRate = 50; //the number of 'ticks' in one second
 const int tickDelay = 1000 / timerTickRate;
@@ -39,7 +40,7 @@ const int minPrintingDelay = 3; //std::ceil(50 / tickDelay);
 const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54); // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
 int maxFlywheelSpeed = 39; //flywheel speed as a percent
-int flystickPos = 0; //flystick starts at kickstand position
+int flystickArmPos = 0; //flystick starts at kickstand position
 
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0; 
@@ -47,7 +48,7 @@ int lastSpinTimestamp = 0;
 
 float defaultArmPos;
 
-int maxFlystickPos = 5;
+int maxflystickArmPos = 5;
 
 int tabVar = 1;
 
@@ -169,27 +170,28 @@ float RCTurnDamping = 0.65;
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 const float autonDriveMult = 1.0;
+int stuckTimeStamp = 0;
+int avgMotorPosition = 0;
 
-int AutonPID() {
+bool AutonPID() {
 
   if (autonPIDIsEnabled) {
 
     //sets heading from -180 < h < 180, meaning we turn the correct direction from error
     float heading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
-
   
     ///////////////////////////////////////
     //////        Lateral PID        //////
     ///////////////////////////////////////
-
-    int avgMotorPosition = (RDriveFrontM.get_position() + LDriveFrontM.get_position()) / 2;
+    
+    avgMotorPosition = ((RDriveFrontM.get_position()) + (LDriveFrontM.get_position())) / 2;
 
     errorProportionalL = lP * (desiredDist - avgMotorPosition); // proportional error
     errorDerivativeL = lD * (errorProportionalL - previousErrorL);       // derivative of error
 
-    // filters out the integral at long ranges (if |error| < constant upper limit, eg. 10cm),
+    // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-    if (fabs(errorProportionalL) < integralBoundL) { 
+    if (fabs(errorProportionalL) > integralBoundL) { 
       errorIntegralL += lI * (errorProportionalL);
     }
     else {
@@ -207,9 +209,9 @@ int AutonPID() {
     errorProportionalR = rP * (desiredHeading - avgBotRotation);   // proportional error
     errorDerivativeR = rD * (errorProportionalR - previousErrorR); // derivative of error
 
-    // filters out the integral at long ranges (if |error| < constant upper value, eg. 10cm),
+    // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-    if (fabs(errorProportionalR) < integralBoundR) { 
+    if (fabs(errorProportionalR) > integralBoundR) { 
       errorIntegralR += rI * (errorProportionalR);
     }
     else {
@@ -227,12 +229,14 @@ int AutonPID() {
 
     LDrive.move_velocity(autonDriveMult * (lateralPower + rotationalPower));
     RDrive.move_velocity(autonDriveMult * (lateralPower - rotationalPower));
+    
+    //stuckTimeStamp += ((errorProportionalL == previousErrorL) && (errorProportionalR == previousErrorR)) ? 1 : -1;
 
     previousErrorL = errorProportionalL;
     previousErrorR = errorProportionalR;
   }
 
-  return (fabs(errorProportionalL) <= (1 * degPerCM) && fabs(errorProportionalR) <= 0.75) ? true : false; //return true if done movement
+  return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 1.5) ? true : false; //return true if done movement
 }
 
 #pragma endregion // end of PID block
@@ -241,7 +245,7 @@ int AutonPID() {
 
 #pragma region ActualCompetitionFunctions
 
-#pragma region AutonFunctions //Functions for autonomous control
+  #pragma region AutonFunctions //Functions for autonomous control
 
 float previousErrorF = 0; //previous error variable for the flystick arm
 
@@ -255,13 +259,17 @@ void AdjustFlystick() {
 
   int deadzoneF = 0.3;
 
-  //responsible for changing/maintaining the position of the flystick using a PD controlelr
-  //no Integral because y'know
+  //responsible for changing/maintaining the position of the flystick using a PD controller
+  //the integral men live in my walls
 
   int desiredRotation;
   float armPos = ArmRot.get_angle() / 100;
 
-  switch (flystickPos) {
+  if (flystickArmPos == 0) { //kills the function if the arm is in kickstand mode, or out of bounds
+    return;
+  }
+
+  switch (flystickArmPos) {
     case 0:
       desiredRotation = defaultArmPos;
       break;
@@ -288,10 +296,6 @@ void AdjustFlystick() {
   float currentErrorF = desiredRotation - armPos;
   float errorDerivativeF = currentErrorF - previousErrorF;
 
-  if (flystickPos == 0) {
-    return;
-  }
-
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
   } else {
@@ -303,23 +307,22 @@ void AdjustFlystick() {
 
 // structure containing all neccessary data for an autonomous command
 struct AutonCommand {
-  float desiredDistInCM;
-  float desiredHeading;
+  const float desiredDistInCM;
+  const float desiredHeading;
+  const int armPos;
+  const int flywheelSpeed;
+  const bool wingsOut;
+  const int endDelay;
 
-  float targetSpeed;
-  int endDelay;
+  const int targetSpeed;
 };
-
-// struct AutonCommands CommandList[totalNumOfCommands]; //initializes the list of autonomous commands, must be populated in active code (preauton)
-const int totalNumOfCommands = 2; // change depending on the total number of "steps" in your autonomous
-
 
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 
 #pragma endregion // end of AutonFunctions
 
-  #pragma region UserControlFunctions
+  #pragma region UserControlFunctions //handles all functions involving user input
 
   int prevXVal = 0;
   int prevYVal = 0;
@@ -337,7 +340,6 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
       driveReversed = !driveReversed;
       LDrive.set_reversed(!driveReversed);
       RDrive.set_reversed(driveReversed);
-
 
       reverseDrive = (reverseDrive >= 0) ? -1 : 1;
     }
@@ -360,8 +362,8 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
       XAccelTimeStamp = globalTimer;
     }
 
-    int YStickPercent = YStickPos / 127; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-    int XStickPercent = XStickPos / 127; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+    int YStickPercent = YStickPos / 1.27; //AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+    int XStickPercent = XStickPos / 1.27; //AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
 
     int outputL = 12 + driveMult * (YStickPercent + XStickPercent) * (fabs((YStickPercent + XStickPercent) / 100));
     int outputR = 12 + driveMult * (YStickPercent - XStickPercent) * (fabs((YStickPercent - XStickPercent) / 100));
@@ -388,27 +390,27 @@ const int totalNumOfCommands = 2; // change depending on the total number of "st
   prevYVal = YStickPos;
 }  
 
-bool FlywheelReversed = false;
+bool flywheelFWD = true; //flywheel is inherently inverted so this reads as the opposite of what it does
 bool flywheelOn = false;
 
-void FlystickControl(int printingRow) { //done
+void FlystickControl(int8_t printingPage) { //done
   //responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
 
-  if (MainControl.get_digital_new_press(DIGITAL_UP) && (globalTimer - lastUpTimestamp >= cooldown) && flystickPos < maxFlystickPos) {
-    flystickPos++;
+  if (MainControl.get_digital_new_press(DIGITAL_UP) && flystickArmPos < maxflystickArmPos) {
+    flystickArmPos++;
     lastUpTimestamp = globalTimer;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (globalTimer - lastDownTimestamp >= cooldown) && flystickPos > 1) {
-    flystickPos--;
+  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && flystickArmPos > 1) {
+    flystickArmPos--;
     lastDownTimestamp = globalTimer;
   }
 
   if (MainControl.get_digital_new_press(DIGITAL_B)) {
-    FlywheelReversed = !FlywheelReversed;
-    FlywheelM.set_reversed(FlywheelReversed);
+    flywheelFWD = !flywheelFWD;
+    FlywheelM.set_reversed(flywheelFWD);
   }
 
   switch (flywheelOn) {
@@ -449,15 +451,8 @@ void WingsControl() { //done
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-int mStartPos;
-
 #pragma region ExecutionBlock //the region in which the above code is executed during a competition
-  /**
- * Runs initialization code. This occurs as soon as the program is started.
- *
- * All other competition modes are blocked by initialize; it is recommended
- * to keep execution time for this mode under a few seconds.
- */
+
   void initialize() {
 
   WingPL.set_value(false);
@@ -466,7 +461,8 @@ int mStartPos;
   FullDrive.tare_position();
   FullDrive.set_zero_position(0);
 
-  mStartPos = LDriveFrontM.get_position();
+  mStartPosL = LDriveMidM.get_position();
+  mStartPosR = RDriveMidM.get_position();
 
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
@@ -498,12 +494,14 @@ int mStartPos;
    * starts.
   */
 
+  #pragma endregion
+
   int selectorStage = 0;
-  int selectedRoute = 1;
-
+  int selectedRoute = 3;
+ 
   void competition_initialize() { //auton selector
-
-    while (true) {
+    /*
+    while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
 
       lcdControl();
 
@@ -511,98 +509,166 @@ int mStartPos;
 
       case 0:
 
-      PrintToController("Select Auton Route: (Up/Down, A) %d", 0, 0, 1);
-      PrintToController("Sk: 1  Off: 2  Def: 3  N/A: 4    %d", 0, 1, 1);
-      PrintToController("Current Selection: %d", selectedRoute, 2, 1);
+        if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 4) {  selectedRoute++;  }
+        if (MainControl.get_digital_new_press(DIGITAL_DOWN) && selectedRoute > 1) {  selectedRoute--;  }
+        if (MainControl.get_digital_new_press(DIGITAL_A)) {  selectorStage++;  }
 
-      if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 3) {
-        selectedRoute++;
-      }
+        PrintToController("Select Auton Route:", 0, 0, 1);
+        PrintToController("Sk: 1 Off: 2 Def: 3", 0, 1, 1);
+        PrintToController("Current Route: %d", selectedRoute, 2, 1);
 
-      if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute > 1) {
-        selectedRoute++;
-      }
-
-      if (MainControl.get_digital_new_press(DIGITAL_A)) {
-        selectorStage++;
-      }
-
-      break;
-
-
+        break;
 
       case 1:
 
-      if (MainControl.get_digital_new_press(DIGITAL_A)) {
-        selectorStage++;
-
-        PrintToController("Auton %d Selected", selectedRoute, 1, 1);
-        delay (300);
-      }
-
-      PrintToController("Confirm: (A)                       %d", 0, 1, 1);
-      PrintToController("Reselect: (B)                      %d", 0, 2, 1);
-
-        switch (selectedRoute) {
-        case 1: 
-        PrintToController("Current Route: Skills            %d", 0, 0, 1);
-        break;
-        case 2:
-        PrintToController("Current Route: Offence           %d", 0, 0, 1);
-        break;
-        case 3:
-        PrintToController("Current Route: Defence           %d", 0, 0, 1);
-        break;
+        if (MainControl.get_digital_new_press(DIGITAL_A)) {
+          selectorStage++;
         }
 
-      break;
-      }
-    }
-  }
+        if (MainControl.get_digital_new_press(DIGITAL_B)) {
+          selectorStage--;
+        }
 
-  #pragma endregion
+        PrintToController("Selected Route:", 0, 0, 1);
+        PrintToController("Confirm/Back: (A/B)", 0, 2, 1);
+
+        switch (selectedRoute) {
+          case 1:  PrintToController("        Skills", 0, 1, 1);
+            break;
+          case 2:  PrintToController("       Offence", 0, 1, 1);
+            break;
+          case 3:  PrintToController("       Defence", 0, 1, 1);
+            break;
+        }
+
+        break;
+      }
+
+      globalTimer++; //need timer for print function
+      delay(tickDelay);
+    }
+
+
+    PrintToController("Auton %d Selected", selectedRoute, 1, 1);
+    globalTimer = 0; */
+  }
 
   #pragma region autonRoutes
 
+  int totalNumOfCommands = 50;
   vector <float> autonCommands[50];
 
   void skillsAuton() {
+    //autonCommands[ autonStep ] = {[]}
+    //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
 
-    //autonCommands[  ] = { , };
+    autonCommands[ 0 ] = {0 , 0 , 0 , 0 , 0 , 0};       //null start, copy/paste to make new step and KEEP AS POSITION 0
+    autonCommands[ 1 ] = {0 , 0 , 0 , 0 , 0 , 0}; 
+    autonCommands[ 2 ] = {0 , 0 , 3 , 100 , 0 , 35};    //Match loads for 35 seconds
+    autonCommands[ 3 ] = {20 , 0 , 0 , -1 , 0 , 0};     //Move forward in preperation for turn
+    autonCommands[ 4 ] = {0 , 90 , 0 , -1 , 0 , 0};     //90 degree turn right to align robot for triball scoring in net
+    autonCommands[ 5 ] = {-65 , 0 , 1 , 0 , 0 , 0};     //push preload triballs towards goal
+    autonCommands[ 6 ] = {20 , 0 , 0 , 0 , 0 , 0};      //move back (preparing for 2nd push into goal)
+    autonCommands[ 7 ] = {-25 , 0 , 0 , 0 , 0 , 0};     //push triballs into goal
+    autonCommands[ 8 ] = {110 , 0 , 0 , 0 , 0 , 0};     //move towardsd wall, triballs are scored, time to try and score triballs in oposite goal
+    autonCommands[ 9 ] = {0 , -45 , 0 , 0 , 0 , 0};     //turn to be parallel with the arena, facing our colors low hang bar
+    autonCommands[ 10 ] = {200 , 0 , 0 , 0 , 0 , 0};    //move from our side to the other side of the feild
+    autonCommands[ 11 ] = {0 , -45 , 0 , 0 , 0 , 0};    //turn towards the net
+    autonCommands[ 12 ] = {70 , 0 , 0 , 0 , 0 , 0};     //push triballs into the net
+    autonCommands[ 13 ] = {0 , -45 , 0 , 0 , 0 , 0};    //turn to face net
+    autonCommands[ 14 ] = {-20 , 0 , 0 , 0 , 0 , 0};    //move back to be in position to push triballs in the side of the net again
+    autonCommands[ 15 ] = {45 , 0 , 0 , 0 , 0 , 0};     //push triballs into net
+    autonCommands[ 16 ] = {0 , -90 , 0 , 0 , 0 , 0};    //turn away from the net to get into position to push the front
+    autonCommands[ 17 ] = {70 , 0 , 0 , 0 , 0 , 0};     //drive to get ahead of goal net
+    autonCommands[ 18 ] = {0 , 45 , 0 , 0 , 0 , 0};     //turn to be perpendicular to match load zone
+    autonCommands[ 19 ] = {15 , 0 , 0 , 0 , 0 , 0};     //position ourselves more in front of the net
+    autonCommands[ 20 ] = {0 , 112.5 , 0 , 0 , 0 , 0};  //turn to face front of net
+    autonCommands[ 21 ] = {60 , 0 , 0 , 0 , 0 , 0};     //push triballs into front of net
+    //samich yummmmmmmmmy
 
-    autonCommands[ 0 ] = {0, 0};
-    autonCommands[ 1 ] = {0, 0};
-    /*autonCommands[ 2 ] = {0 , 45};
-    autonCommands[ 3 ] = {40 , 0};*/
-
+    totalNumOfCommands = 21;
   }
 
   void offenceAuton() { //starting on the enemy side of the field (no match loading)
+    //autonCommands[ autonStep ] = {[]}
+    //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
 
-    //autonCommands[  ] = { , };
+    autonCommands[ 0 ] = {0 , 0 , 0 , 0 , 0 , 0};       //null start, copy/paste to make new step and KEEP AS POSITION 0
+    autonCommands[ 1 ] = {-35 , 0, 0 , 0 , 0 , 0};      //drive along match load bar
+    autonCommands[ 2 ] = {0 , -10, 0 , 0 , 0 , 0};      //turn slightly away from wall
+    autonCommands[ 3 ] = {-45 , 0, 0 , 0 , 0 , 0};      //ram preload into net
+    autonCommands[ 4 ] = {60 , 0, 0 , 0 , 0 , 0};       //drive back to halfway along match load bar
+    autonCommands[ 5 ] = {0, 80, 0 , 0 , 0 , 0};        //turn to face away from match load bar
+    autonCommands[ 6 ] = {10 , 0 , 5 , 80 , 0 , 0};     //lower arm and spin flywheel
+    autonCommands[ 7 ] = {-30 , 0 , 0 , -1 , 0 , 0};    //reverse into corner tribal, launching it out of corner
+    autonCommands[ 8 ] = {0 , 100 , 3 , 0 , 0 , 0};     //stop flystick and turn towards horizontal climb bar
+    autonCommands[ 9 ] = {-35 , 0 , 0 , 0 , 0 , 0};     //drive to entrance of climb bar corridor
+    autonCommands[ 10 ] = {0 , 45 , 0 , 0 , 0 , 0};     //turn to face horizontal climb bar
+    autonCommands[ 11 ] = {-90 , 0 , 0 , 0 , 0 , 0};    //drive until arm is touching horizontal bar
 
+    totalNumOfCommands = 0;
   }
 
   void defenceAuton() { //starting on the team side of the field (match loading)
+    //autonCommands[ autonStep ] = {[]}
+    //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
 
-    //autonCommands[  ] = { , };
+    autonCommands[ 0 ] = {0 , 0 , 0 , 0 , 0 , 0};     //null start, copy/paste to make new step and KEEP AS POSITION 0
+    autonCommands[ 1 ] = {0 , 0 , 0 , 0 , 0 , 1};
+    autonCommands[ 2 ] = {-35 , 0, 0 , 0 , 0 , 0};    //drive along match load bar
+    autonCommands[ 3 ] = {0 , 10, 0 , 0 , 0 , 0};     //turn slightly away from wall
+    autonCommands[ 4 ] = {-45 , 0, 0 , 0 , 0 , 0};    //ram preload into net
+    autonCommands[ 5 ] = {60 , 0, 0 , 0 , 0 , 0};     //drive back to halfway along match load bar
+    autonCommands[ 6 ] = {0, -90, 0 , 0 , 0 , 0};     //turn to face away from match load bar
+    autonCommands[ 7 ] = {20 , 0 , 5 , 80 , 0 , 2};   //lower arm and spin flywheel
+    autonCommands[ 8 ] = {-40 , 0 , 0 , -1 , 0 , 2};  //reverse into corner tribal, launching it out of corner
+    autonCommands[ 9 ] = {0 , -100 , 3 , 0 , 0 , 0};  //stop flystick and turn towards horizontal climb bar
+    autonCommands[ 10 ] = {-35 , 0 , 0 , 0 , 0 , 0};  //drive to entrance of climb bar corridor
+    autonCommands[ 11 ] = {0 , -45 , 0 , 0 , 0 , 0};  //turn to face horizontal climb bar
+    autonCommands[ 12 ] = {-90 , 0 , 0 , 0 , 0 , 0};  //drive until arm is touching horizontal bar
 
-    // BEN READ ME
-    // try to make this by copying the start of our skills auton where we ram the preload under the net
-    // but add a slight "back up to hit the green triball that starts under the horizontal bar"
-    // the above stuff should be pretty easy, then maybe try to ram a few over the middle if you have the time (low priority)
-
+    totalNumOfCommands = 12;
   }
 
   #pragma endregion
 
-  int stepChangeCooldown = timerTickRate / 4; //sets the minimum delay between auton steps, default 0.25 seconds
-  int stepChangeTimeStamp = 0; //stores the time of the last step change
+  #pragma region autonVars
+
+    const int stepChangeCooldown = timerTickRate / 3; //sets the minimum delay between auton steps, default 0.25 seconds
+    int stepChangeTimeStamp = 0; //stores the time of the last step change
+
+    //initializing data variables (used to track details of each step)
+    int autonStep = 0; //tracks which step of the auton the program is on
+    int flywheelSpeed = 0;
+    int prevFlywheelSpeed = 0;
+    int prevArmPos = 0;
+    bool wingsOut = false;
+    int endDelayTimeStamp = 0; //holds the minimum objective time at which the current step can end 
+    //                          (ex. flywheel spinning step lasts a min of 30 sec)
+
+    void ReadAutonStep() {
+
+      vector <float> currentCommand = autonCommands[autonStep];
+
+      desiredDist += currentCommand.at(0) * degPerCM;
+      desiredHeading += currentCommand.at(1);
+
+      flystickArmPos = (currentCommand.at(2) == 0) ? prevArmPos : currentCommand.at(2);
+      flywheelSpeed = (currentCommand.at(3) == -1) ? prevFlywheelSpeed : currentCommand.at(3);
+
+      endDelayTimeStamp = ((currentCommand.at(5) * timerTickRate) > stepChangeCooldown) ? (currentCommand.at(5) * timerTickRate) : stepChangeCooldown;
+
+      //extends/retracts both wings depending on input
+      wingsOut = currentCommand.at(4);
+      WingPL.set_value(wingsOut);
+      WingPR.set_value(wingsOut);
+}
+
+#pragma endregion
 
   void autonomous() {
 
-    selectedRoute = 1; //change this to manually select the auton route being tested
-    //hopefully my auton selector works but I dont want you to have to deal with untested code
+    //selectedRoute = 3;
 
     switch (selectedRoute) {
       case 1:
@@ -616,60 +682,60 @@ int mStartPos;
         break;
     }
 
-    int autonStep = 0; //tracks which step of the auton the program is on
-    int shootOrb = 1; //set to -1 for non-shooting autons
+
+    desiredDist = 0;
+    desiredHeading = 0;
+    FullDrive.move_velocity(0);
     
-
     while (true) {
+     
+      lcdControl(); //allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
+      FlywheelM.move_velocity(flywheelSpeed * 2); //spins the flywheel at the desired speed (input as a percent)
+      if ((ArmRot.get_angle() / 100) < 306) { AdjustFlystick();  } //manages the height of the flystick arm
 
-      if (autonStep == shootOrb) { //handles the shooting stage of autonomous
-        flystickPos = 3;
+      float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
+      bool stepPIDIsComplete = AutonPID();
 
-        while (globalTimer <= (15 * timerTickRate)) { //objective timer, starts relative to skills run start
+        #pragma region diagnostics
 
-          //speen
-          AdjustFlystick();
-          FlywheelM.move_velocity(-180);
+        //reports values relating to the movement of the flystick on page 1
+        PrintToController("Step: %d", autonStep, 0, 1);
+        PrintToController("Timer: %d", globalTimer, 1, 1);
+        PrintToController("Route: %d", selectedRoute, 2, 1);
+
+        //reports values relating to the overall progression of the autonomous on page 2
+        PrintToController("Timer: %d", globalTimer, 0, 2);
+        PrintToController("Wing??: %d", wingsOut, 1, 2);
+        PrintToController("DelayDone?: %d", (globalTimer - endDelayTimeStamp), 2, 2);
+
+        //reports values relating to the PID movement on pages 3 & 4
+        PrintToController("Complete?: %d", stepPIDIsComplete, 0, 3);
+        PrintToController("Head: %d", inerHeading, 1, 3);
+        PrintToController("ErrorR: %d", errorProportionalR, 2, 3); 
+
+        PrintToController("Complete?: %d", stepPIDIsComplete, 0, 4);
+        PrintToController("TargDist: %d", desiredDist, 1, 4);
+        PrintToController("ErrorL: %d",(RDriveMidM.get_position() + LDriveMidM.get_position()) / 2 , 2, 4); 
+
+        #pragma endregion
+
+      if (autonStep > totalNumOfCommands) { //kills the program if auton route is complete
+        while (true) {
+          FullDrive.move_velocity(0);
+          PrintToController("Out of bounds", 0, 1, 1);
 
           globalTimer++;
           delay(tickDelay);
         }
-
-        autonStep++;
-        flywheelOn = false;
-        flystickPos = 1;
-      }
-
-      lcdControl(); //allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
-      AdjustFlystick(); //manages the height of the flystick arm
-
-      //diagnostics, not neccessary
-      float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
-
-      PrintToController("Step: %d", autonStep, 0, 1);
-      PrintToController("DesDist: %d", desiredDist, 1, 1);
-      PrintToController("DesHead: %d", desiredHeading, 2, 1);
-
-      PrintToController("Complete?: %d", AutonPID(), 0, 2);
-      PrintToController("Head: %d", inerHeading, 1, 2);
-      PrintToController("ErrorR: %d", errorProportionalR, 2, 2); 
-
-      PrintToController("Complete?: %d", AutonPID(), 0, 3);
-      PrintToController("TargDist: %d", desiredDist, 1, 3);
-      PrintToController("ErrorL: %d", errorProportionalL, 2, 3); 
-
-
-      if ((MainControl.get_digital_new_press(DIGITAL_X)  || AutonPID() == 1) && (timeSincePoint(stepChangeTimeStamp) >= stepChangeCooldown)) { //MainControl.get_digital_new_press(DIGITAL_X) || 
+      } else if ((MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete ) && (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) { //MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete 
+        
         autonStep++;
 
         stepChangeTimeStamp = globalTimer;
+        prevArmPos = flystickArmPos;
+        prevFlywheelSpeed = flywheelSpeed;
 
-        vector <float> currentCommand = autonCommands[autonStep];
-        desiredDist += currentCommand.at(0) * degPerCM;
-        desiredHeading += currentCommand.at(1);
-
-      } else if (autonStep >= 4) {
-        return;
+        ReadAutonStep();
       }
 
       globalTimer++;
@@ -677,7 +743,7 @@ int mStartPos;
     }
   }
 
-
+  #pragma region debugFunctions
 
   float adjustFactor = 0.1; //the amount PID variables change by during manual tuning
 
@@ -685,6 +751,9 @@ int mStartPos;
     
     desiredDist = 0 * degPerCM;
     desiredHeading = 0;
+
+    lOutput = 1.0;
+    rOutput = 2.7;
 
     while (true) {
 
@@ -727,7 +796,7 @@ int mStartPos;
 
   void minAuton() { // minimum viable "turn on flystick" auton
 
-    flystickPos = 3;
+    flystickArmPos = 3;
 
     while (true) {
       AdjustFlystick();
@@ -735,28 +804,23 @@ int mStartPos;
     }
   }
 
+  #pragma endregion
+
 /**
- * Runs the operator control code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the operator
- * control mode.
- *
+ * Runs the user control code
  * If no competition control is connected, this function will run immediately
  * following initialize().
- *
- * If the robot is disabled or communications is lost, the
- * operator control task will be stopped. Re-enabling the robot will restart the
- * task, not resume it from where it left off.
  */
 void opcontrol() {
 
-  //autonomous(); //temporarily running autonomous in usercontrol, uncomment to allow for autonomous testing
+  //competition_initialize();
+  //autonomous();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               autonomous();
 
-  //FlywheelM.set_reversed(false);
+  flywheelFWD = true;
 
-  //flywheelOn = false;
+  flywheelOn = false;
   
-  /*flystickPos = 3; //ACTUAL DRIVE CODE, UNCOMMENT IF UPLOADING DRIVE
+  //flystickArmPos = 3; //ACTUAL DRIVE CODE, UNCOMMENT IF UPLOADING DRIVE
 
 	while (true) {  
 
@@ -768,5 +832,5 @@ void opcontrol() {
     
     globalTimer++;
     delay(tickDelay);
-  }*/
+  }
 }
