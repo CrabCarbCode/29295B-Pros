@@ -64,24 +64,30 @@ int toInt(float val) {
   return val;
 }
 
+int timeSincePoint (int checkedTime) {
+  return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1; //returns -1 if checkedtime is in the future
+}
+
+//i have no idea what im doing
+float AccelSmoothingFunc(float input, float x) { //takes a given point from -1 to 1 and returns a corresponding value from a smooth curve
+  const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
+  return x >= (timerTickRate / 2) ? (modifier * input) : input;
+} //function graphed here: https://www.desmos.com/calculator/rwlduqosuy
+
+//  /  /  /  /  /  /  /  /  /
+
+static bool IsWithinRange<T>(this T number, T rangeStart, T rangeEnd) where T : IComparable<T> {
+  return number.CompareTo(rangeStart) >= 0 && number.CompareTo(rangeEnd) <= 0;
+}
+
 void PrintToController(std::string prefix, float data, int row, int page) {
-  if (globalTimer % 11 == 0) {
+  if (globalTimer % 11 == 0) { //refresh the screen every 11 ticks
     MainControl.clear();
   }
 
   if (tabVar == page && (globalTimer % 9 == (row * 3))) {
     MainControl.print(row, 0, prefix.c_str(), toInt(data));
   }
-}
-//  /  /  /  /  /  /  /  /  /
-int timeSincePoint (int checkedTime) {
-  return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1; //returns -1 if checkedtime is in the future
-}
-
-//i have no idea what im doing
-float AccelSmoothingFunc(float input, float x) {
-  const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
-  return x >= (timerTickRate / 2) ? (modifier * input) : input;
 }
 
 void lcdControl() {
@@ -98,7 +104,6 @@ void lcdControl() {
 ////// / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
 
 #pragma region AutonPID //the code behind the autonomous Proportional Integral Derivative controller
-
 
 ///// Control Variables //////
 
@@ -251,7 +256,7 @@ float previousErrorF = 0; //previous error variable for the flystick arm
 
 bool allowAdjust = false;
 
-void AdjustFlystick() {
+void AdjustFlystick(bool move) {
 
   float fP = 0.6;
   float fD = 0.8;
@@ -296,13 +301,40 @@ void AdjustFlystick() {
   float currentErrorF = desiredRotation - armPos;
   float errorDerivativeF = currentErrorF - previousErrorF;
 
+  previousErrorF = currentErrorF;
+
+  if (!move) { //return the function before the arm is allowed to move to prevent
+    return;
+  }
+
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
   } else {
     FlystickArmM.move_velocity(0);
   }
+}
 
-  previousErrorF = currentErrorF;
+int prevWheelPos; 
+int bopItSelectTimeStamp = 0;
+
+vector<int> ReadBopIt() {
+
+  int armInput = (ArmRot.get_angle() / 10000);
+  
+  int wheelDelta = abs(FlywheelM.get_position - prevWheelPos);
+
+  int wheelInput;
+  
+  if (abs(wheelDelta).IsWithinRange(25, 75) && timeSincePoint(bopItSelectTimeStamp) > 10) {
+    wheelInput = (wheelDelta == abs(wheelDelta)) ? 1 : -1;
+    bopItSelectTimeStamp = globalTimer;
+  } else {
+    wheelInput = 0;
+  }
+  
+  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position) : prevWheelPos;
+
+  return {armInput, wheelInput};
 }
 
 // structure containing all neccessary data for an autonomous command
@@ -499,7 +531,7 @@ void WingsControl() { //done
   int selectorStage = 0;
   int selectedRoute = 3;
  
-  void competition_initialize() { //auton selector
+  void competition_initialize() { //auton selector (bop-it!)
     /*
     while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
 
@@ -691,7 +723,7 @@ void WingsControl() { //done
      
       lcdControl(); //allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
       FlywheelM.move_velocity(flywheelSpeed * 2); //spins the flywheel at the desired speed (input as a percent)
-      if ((ArmRot.get_angle() / 100) < 306) { AdjustFlystick();  } //manages the height of the flystick arm
+      if ((ArmRot.get_angle() / 100) < 306) { AdjustFlystick(true);  } //manages the height of the flystick arm
 
       float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
       bool stepPIDIsComplete = AutonPID();
@@ -799,7 +831,7 @@ void WingsControl() { //done
     flystickArmPos = 3;
 
     while (true) {
-      AdjustFlystick();
+      AdjustFlystick(true);
       FlywheelM.move_velocity(-180);
     }
   }
@@ -827,7 +859,7 @@ void opcontrol() {
     DrivingControl(1);
     WingsControl();
     FlystickControl(-1);
-    AdjustFlystick();
+    AdjustFlystick(true);
     lcdControl();
     
     globalTimer++;
