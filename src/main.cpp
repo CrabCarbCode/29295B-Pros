@@ -337,6 +337,61 @@ vector<int> ReadBopIt() {
   return {armInput, wheelInput};
 }
 
+void controllerAutonSelect() { //cool, efficient, but controllers are disabled during pre-auton so entirely useless
+
+
+    while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
+
+      lcdControl();
+
+      switch (selectorStage) {
+
+      case 0:
+
+        if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 4) {  selectedRoute++;  }
+        if (MainControl.get_digital_new_press(DIGITAL_DOWN) && selectedRoute > 1) {  selectedRoute--;  }
+        if (MainControl.get_digital_new_press(DIGITAL_A)) {  selectorStage++;  }
+
+        PrintToController("Select Auton Route:", 0, 0, 1);
+        PrintToController("Sk: 1 Off: 2 Def: 3", 0, 1, 1);
+        PrintToController("Current Route: %d", selectedRoute, 2, 1);
+
+        break;
+
+      case 1:
+
+        if (MainControl.get_digital_new_press(DIGITAL_A)) {
+          selectorStage++;
+        }
+
+        if (MainControl.get_digital_new_press(DIGITAL_B)) {
+          selectorStage--;
+        }
+
+        PrintToController("Selected Route:", 0, 0, 1);
+        PrintToController("Confirm/Back: (A/B)", 0, 2, 1);
+
+        switch (selectedRoute) {
+          case 1:  PrintToController("        Skills", 0, 1, 1);
+            break;
+          case 2:  PrintToController("       Offence", 0, 1, 1);
+            break;
+          case 3:  PrintToController("       Defence", 0, 1, 1);
+            break;
+        }
+
+        break;
+      }
+
+      globalTimer++; //need timer for print function
+      delay(tickDelay);
+    }
+
+
+    PrintToController("Auton %d Selected", selectedRoute, 1, 1);
+    globalTimer = 0; 
+}
+
 // structure containing all neccessary data for an autonomous command
 struct AutonCommand {
   const float desiredDistInCM;
@@ -532,18 +587,20 @@ void WingsControl() { //done
   int selectedRoute = 3;
  
   void competition_initialize() { //auton selector (bop-it!)
-    /*
+
     while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
 
       lcdControl();
 
+      vector<int> output = ReadBopIt();
+
+      selectedRoute = output.at(0);
+
+      selectorStage += output.at(1);
+
       switch (selectorStage) {
 
       case 0:
-
-        if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 4) {  selectedRoute++;  }
-        if (MainControl.get_digital_new_press(DIGITAL_DOWN) && selectedRoute > 1) {  selectedRoute--;  }
-        if (MainControl.get_digital_new_press(DIGITAL_A)) {  selectorStage++;  }
 
         PrintToController("Select Auton Route:", 0, 0, 1);
         PrintToController("Sk: 1 Off: 2 Def: 3", 0, 1, 1);
@@ -552,14 +609,6 @@ void WingsControl() { //done
         break;
 
       case 1:
-
-        if (MainControl.get_digital_new_press(DIGITAL_A)) {
-          selectorStage++;
-        }
-
-        if (MainControl.get_digital_new_press(DIGITAL_B)) {
-          selectorStage--;
-        }
 
         PrintToController("Selected Route:", 0, 0, 1);
         PrintToController("Confirm/Back: (A/B)", 0, 2, 1);
@@ -576,13 +625,13 @@ void WingsControl() { //done
         break;
       }
 
-      globalTimer++; //need timer for print function
+      globalTimer++; //timer for print function and emergency killswitch
       delay(tickDelay);
     }
 
 
     PrintToController("Auton %d Selected", selectedRoute, 1, 1);
-    globalTimer = 0; */
+    globalTimer = 0; 
   }
 
   #pragma region autonRoutes
@@ -690,7 +739,7 @@ void WingsControl() { //done
 
       endDelayTimeStamp = ((currentCommand.at(5) * timerTickRate) > stepChangeCooldown) ? (currentCommand.at(5) * timerTickRate) : stepChangeCooldown;
 
-      //extends/retracts both wings depending on input
+      //extends or retracts both wings depending on input
       wingsOut = currentCommand.at(4);
       WingPL.set_value(wingsOut);
       WingPR.set_value(wingsOut);
