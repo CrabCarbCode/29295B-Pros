@@ -15,6 +15,10 @@ using namespace std;
 
 #pragma endregion
 
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
 #pragma region NotesMaybeReadMe
 
 // here to document weird quirks of V5, VSCode, or this particular program
@@ -75,18 +79,17 @@ int timeSincePoint(int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1;  // returns -1 if checkedtime is in the future
 }
 
+static bool IsWithinRange(float num, float lowerBound, float upperBound) { return num >= lowerBound && num <= upperBound; }
+
 // i have no idea what im doing
-float AccelSmoothingFunc(float input, float x) {  // takes a given point from -1 to 1 and returns a
-                                                  // corresponding value from a smooth curve
-  const float modifier = (2.5 / sqrt(2 * Pi)) * powf(e, (-0.5 * pow(((2.5 * x) - 2.5), 2)));
-  return x >= (timerTickRate / 2) ? (modifier * input) : input;
+float AccelSmoothingFunc(float stickVal, float x) {  // takes a given point from -1 to 1 and returns a corresponding value from a smooth curve
+  /*float sigma = 0.19948;
+  float mu = 1;
+
+  const float multiplier = (0.5 / (sigma * sqrt(2 * Pi))) * powf(e, (-0.5 * pow((), 2)));
+  return x >= (timerTickRate / 2) ? (multiplier * stickVal) : stickVal; */
 }  // function graphed here: https://www.desmos.com/calculator/rwlduqosuy
 
-//  /  /  /  /  /  /  /  /  /
-
-static bool IsWithinRange<T>(this T number, T rangeStart, T rangeEnd) where T : IComparable<T> {
-  return number.CompareTo(rangeStart) >= 0 && number.CompareTo(rangeEnd) <= 0;
-}
 
 void PrintToController(std::string prefix, float data, int row, int page) {
   if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks
@@ -243,13 +246,13 @@ bool AutonPID() {
 //   1. call the tunePID function in opcontrol()                                                                       //
 //   2. confirm that the P/I/D tuning variables in the "PIDVariables" region are set to 0.0, with the outputs at 1.0   //
 //   3. follow the control layout found here: [link]                                                                   //
-//   4. increase the P coefficient(s) until the desired motion is completed with oscilations                           //
-//   5. increase the D coefficient(s) until the oscilations dampen out over time                                       //
-//   6. increase the I coefficient(s) until the motion is completed aggressively without oscilations                   //
+//   4. increase the lP/rP coefficient(s) until the desired motion is completed with oscilations                       //
+//   5. increase the lD/rD coefficient(s) until the oscilations dampen out over time                                   //
+//   6. increase the lI/rI coefficient(s) until the motion is completed aggressively without oscilations               //
 //      (somewhat optional, as not all applications benefit from an integral controller)                               //
 //   7. increase the output coefficient(s) until the motion is completed with acceptable speed and precision           //
 //                                                                                                                     //
-//      as builds and usecases vary, you may need to fiddle with the values after initial tuning after more testing.   //
+//      as builds and use cases vary, you may need to fiddle with the values after initial tuning after more testing.   //
 //      generally the P & D components should be larger than the I, and values should be between 0.0 and 5.0.          //
 ////                                                                                                                 ////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -282,16 +285,15 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
     if (MainControl.get_digital_new_press(DIGITAL_X)) {  // toggles increases/decreases to tuning variables
       adjustFactor *= -1;
     }
-
-    if (MainControl.get_digital_new_press(DIGITAL_UP) { // toggles between testing rotational / lateral drive
-      isTuningTurns = !isTuningTurns;  
-    } 
-    if (MainControl.get_digital_new_press(DIGITAL_R1) { // changes output power of lateral PID
-      lOutput += adjustFactor;  
-    } 
-    if (MainControl.get_digital_new_press(DIGITAL_L1) { // changes output power of rotational PID
-      rOutput += adjustFactor;  
-    } 
+    if (MainControl.get_digital_new_press(DIGITAL_UP)) {  // toggles between testing rotational / lateral drive
+      isTuningTurns = !isTuningTurns;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_R1)) {  // changes output power of lateral PID
+      lOutput += adjustFactor;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_L1)) {  // changes output power of rotational PID
+      rOutput += adjustFactor;
+    }
 
 
     PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 0, 2);
@@ -299,12 +301,12 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
     PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 2, 2);
 
     PrintToController("Turning?: %d", isTuningTurns, 0, 3);
-    PrintToController("lOutput: %d", lOuptut, 1, 3);
-    PrintToController("rOutput: %d", rOuptut, 2, 3);
+    PrintToController("lOutput: %d", lOutput, 1, 3);
+    PrintToController("rOutput: %d", rOutput, 2, 3);
 
     AutonPID();
 
-    if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) { //flips 180 or drives 1m in alternating directions at regular intervals
+    if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {  // flips 180 or drives 1m in alternating directions at regular intervals
       desiredDist = isTuningTurns ? 0 : 50 * degPerCM;
       desiredHeading = isTuningTurns ? 90 : 0;
     } else {
@@ -396,21 +398,24 @@ void AdjustFlystick(bool move) {
 int prevWheelPos;
 int bopItSelectTimeStamp = 0;
 
+int selectorStage = 0;
+int selectedRoute = 3;
+
 vector<int> ReadBopItOutputs() {
   int armInput = (ArmRot.get_angle() / 10000);
 
-  int wheelDelta = abs(FlywheelM.get_position - prevWheelPos);
+  int wheelDelta = abs(FlywheelM.get_position() - prevWheelPos);
 
   int wheelInput;
 
-  if (abs(wheelDelta).IsWithinRange(25, 75) && timeSincePoint(bopItSelectTimeStamp) > 10) {
+  if (IsWithinRange(wheelDelta, 25, 75) && timeSincePoint(bopItSelectTimeStamp) > 10) {
     wheelInput = (wheelDelta == abs(wheelDelta)) ? 1 : -1;
     bopItSelectTimeStamp = globalTimer;
   } else {
     wheelInput = 0;
   }
 
-  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position) : prevWheelPos;
+  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position()) : prevWheelPos;
 
   return {armInput, wheelInput};
 }
@@ -505,6 +510,8 @@ bool wingsOut = false;
 int endDelayTimeStamp = 0;  // holds the minimum objective time at which the current step can end
 //                          (ex. flywheel spinning step lasts a min of 30 sec)
 
+vector<float> autonCommands[50];
+
 void ReadAutonStep() {
   vector<float> currentCommand = autonCommands[autonStep];
 
@@ -526,10 +533,8 @@ void ReadAutonStep() {
 
 #pragma region UserControlFunctions //handles all functions involving user input
 
-int prevXVal = 0;
-int prevYVal = 0;
-int XAccelTimeStamp = 0;
-int YAccelTimeStamp = 0;
+int XAccelVal = 0;
+int YAccelVal = 0;
 
 int driveMult = 5.5;
 
@@ -555,44 +560,31 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // implementing a slow initial acceleration for precision movements
 
-  if (abs(prevYVal <= deadband && (abs(YStickPos) - abs(prevYVal) >= 25))) {
-    // if the Y stick's position has changed drastically from zero, set a
-    // marker for the acceleration function
-    YAccelTimeStamp = globalTimer;
-  }
-  if (abs(prevXVal <= deadband && (abs(XStickPos) - abs(prevXVal) >= 20))) {
-    // if the X stick's position has changed drastically from zero, set a
-    // marker for the acceleration function
-    XAccelTimeStamp = globalTimer;
-  }
+  XAccelVal += (abs(XStickPos) > deadband) && (XAccelVal <= 100) ? 2 : -2;
+  YAccelVal += (abs(YStickPos) > deadband) && (YAccelVal <= 100) ? 2 : -2;
 
-  int YStickPercent = YStickPos / 1.27;  // AccelSmoothingFunc((YStickPos),
-                                         // (globalTimer - YAccelTimeStamp));
-  int XStickPercent = XStickPos / 1.27;  // AccelSmoothingFunc((XStickPos) * RCTurnDamping,
-                                         // (globalTimer - XAccelTimeStamp));
+
+  int YStickPercent = YStickPos / 1.27;  // AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+  int XStickPercent = XStickPos / 1.27;  // AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
 
   int outputL = 12 + driveMult * (YStickPercent + XStickPercent) * (fabs((YStickPercent + XStickPercent) / 100));
   int outputR = 12 + driveMult * (YStickPercent - XStickPercent) * (fabs((YStickPercent - XStickPercent) / 100));
 
-  if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
+  /*if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
     LDrive.move_velocity(outputL);
     RDrive.move_velocity(outputR);
   } else {
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
-  }
+  }*/
 
   PrintToController("LDrive: %d", -1, 1, printingPage);
   PrintToController("RDrive: %d", -1, 2, printingPage);
 
-  PrintToController("YOut %d", YStickPercent, 1, printingPage + 1);
+
+  PrintToController("XOutput: %d", XStickPercent, 0, printingPage);
+  PrintToController("XMult: %d", YStickPercent, 1, printingPage + 1);
   PrintToController("XOut %d", XStickPercent, 2, printingPage + 1);
-
-  PrintToController("Funcval %d", AccelSmoothingFunc(1, 100 * (globalTimer - YAccelTimeStamp)), 1, printingPage + 2);
-  PrintToController("FuncX %d", (globalTimer - YAccelTimeStamp), 2, printingPage + 2);
-
-  prevXVal = XStickPos;
-  prevYVal = YStickPos;
 }
 
 
@@ -685,8 +677,6 @@ void initialize() {
 
 void disabled() {}
 
-int selectorStage = 0;
-int selectedRoute = 3;
 
 void competition_initialize() {  // auton selector (bop-it!)
 
@@ -740,12 +730,10 @@ void competition_initialize() {  // auton selector (bop-it!)
 #pragma region autonRoutes
 
 int totalNumOfCommands = 50;
-vector<float> autonCommands[50];
 
 void skillsAuton() {
-  // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
-  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+  // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
+  // wingsOut(bool), delay(seconds)]
 
   autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
   autonCommands[1] = {0, 0, 0, 0, 0, 0};
@@ -920,6 +908,8 @@ void opcontrol() {
   // competition_initialize();
   // autonomous();
 
+  // tunePID();
+
   flywheelFWD = true;
 
   flywheelOn = false;
@@ -928,9 +918,9 @@ void opcontrol() {
 
   while (true) {
     DrivingControl(1);
-    WingsControl();
-    FlystickControl(-1);
-    AdjustFlystick(true);
+    // WingsControl();
+    // FlystickControl(-1);
+    // AdjustFlystick(true);
     lcdControl();
 
     globalTimer++;
