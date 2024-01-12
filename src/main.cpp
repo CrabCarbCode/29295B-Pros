@@ -82,13 +82,20 @@ int timeSincePoint(int checkedTime) {
 static bool IsWithinRange(float num, float lowerBound, float upperBound) { return num >= lowerBound && num <= upperBound; }
 
 // i have no idea what im doing
-float AccelSmoothingFunc(float stickVal, float x) {  // takes a given point from -1 to 1 and returns a corresponding value from a smooth curve
-  /*float sigma = 0.19948;
-  float mu = 1;
+float AccelSmoothingFunc(float stickVal, int xInput) {
+  // takes a stick input and acceleration percent and returns a corresponding value from a smooth curve
 
-  const float multiplier = (0.5 / (sigma * sqrt(2 * Pi))) * powf(e, (-0.5 * pow((), 2)));
-  return x >= (timerTickRate / 2) ? (multiplier * stickVal) : stickVal; */
-}  // function graphed here: https://www.desmos.com/calculator/rwlduqosuy
+  // variables which control the shape/range of the funct
+  float curveExtremity = 0.19948;  // sigma
+  float peakPos = 1;               // mu
+  float minAmount = 0.235;         // kappa
+
+  float x = xInput / 100;  // converting the input from percentage to a decimal btween 0-1
+
+  const float multiplier =
+      (0.5 / (curveExtremity * sqrt(2 * Pi))) * powf(e, (-0.5 * pow(((minAmount * x - minAmount * peakPos) / curveExtremity), 2)));
+  return xInput >= (100) ? (multiplier * stickVal) : stickVal;
+}  // function graphed here: https://www.desmos.com/calculator/rngq1awu9a
 
 
 void PrintToController(std::string prefix, float data, int row, int page) {
@@ -533,8 +540,8 @@ void ReadAutonStep() {
 
 #pragma region UserControlFunctions //handles all functions involving user input
 
-int XAccelVal = 0;
-int YAccelVal = 0;
+int rotationalAccelX = 0;
+int lateralAccelX = 0;
 
 int driveMult = 5.5;
 
@@ -560,31 +567,31 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // implementing a slow initial acceleration for precision movements
 
-  XAccelVal += (abs(XStickPos) > deadband) && (XAccelVal <= 100) ? 2 : -2;
-  YAccelVal += (abs(YStickPos) > deadband) && (YAccelVal <= 100) ? 2 : -2;
+  lateralAccelX += (abs(YStickPos) > deadband) && (lateralAccelX <= 100) ? 2 : -2;
+  rotationalAccelX += (abs(XStickPos) > deadband) && (rotationalAccelX <= 100) ? 2 : -2;
 
+  int lateralOutput = AccelSmoothingFunc((YStickPos / 1.27), lateralAccelX);  // AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
+  int rotationalOutput =
+      AccelSmoothingFunc((XStickPos / 1.27), rotationalAccelX);  // AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
 
-  int YStickPercent = YStickPos / 1.27;  // AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-  int XStickPercent = XStickPos / 1.27;  // AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
-
-  int outputL = 12 + driveMult * (YStickPercent + XStickPercent) * (fabs((YStickPercent + XStickPercent) / 100));
-  int outputR = 12 + driveMult * (YStickPercent - XStickPercent) * (fabs((YStickPercent - XStickPercent) / 100));
+  int leftOutput = 6 * ((lateralOutput + rotationalOutput));
+  int rightOutput = 6 * ((lateralOutput - rotationalOutput));
 
   /*if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
-    LDrive.move_velocity(outputL);
-    RDrive.move_velocity(outputR);
+    LDrive.move_velocity(leftOutput - (XStickPos / 2.54)));
+    RDrive.move_velocity(rightOutput - (XStickPos / 2.54));
   } else {
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
   }*/
 
-  PrintToController("LDrive: %d", -1, 1, printingPage);
-  PrintToController("RDrive: %d", -1, 2, printingPage);
+  PrintToController("LDrive: %d", (leftOutput - (XStickPos / 4)), 1, printingPage);
+  PrintToController("RDrive: %d", (rightOutput - (XStickPos / 4)), 2, printingPage);
 
 
-  PrintToController("XOutput: %d", XStickPercent, 0, printingPage);
-  PrintToController("XMult: %d", YStickPercent, 1, printingPage + 1);
-  PrintToController("XOut %d", XStickPercent, 2, printingPage + 1);
+  PrintToController("XOutput: %d", rotationalOutput, 0, printingPage);
+  PrintToController("XMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
+  PrintToController("XOut %d", rotationalOutput, 2, printingPage + 1);
 }
 
 
