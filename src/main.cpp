@@ -28,6 +28,13 @@ Sometimes things just break, like the abs() function was demanding 0 args.
 Restarting the program fixed this Strings do not work in vex without external
 library shenanigans
 */
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
+#pragma region GlobalVars
 
 ///// Control Variables //////
 
@@ -37,13 +44,6 @@ int deadband = 5;          // if the controller sticks are depressed less than d
 const float autonDriveMult =
     1.0;  // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
-#pragma endregion
-
-
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-
-#pragma region GlobalVars
 
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
@@ -70,12 +70,6 @@ float defaultArmPos;
 int maxflystickArmPos = 5;
 
 int tabVar = 1;
-
-bool twoStickMode = true;  // toggles single or float stick drive
-int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
-
-const float autonDriveMult = 1.0;
-// unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
 #pragma endregion
 
@@ -573,8 +567,8 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   static float fullAccelDelay = 0.5;
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick; // Y(x) on graph
-  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick; // X(x) on graph
+  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;        // Y(x) on graph
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
 
   // applying the acceleratory curve to the stick inputs
