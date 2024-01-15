@@ -16,7 +16,7 @@ using namespace std;
 #pragma endregion
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region NotesMaybeReadMe
@@ -29,10 +29,18 @@ Restarting the program fixed this Strings do not work in vex without external
 library shenanigans
 */
 
+///// Control Variables //////
+
+bool twoStickMode = true;  // toggles single or float stick drive
+int deadband = 5;          // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
+
+const float autonDriveMult =
+    1.0;  // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
+
 #pragma endregion
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region GlobalVars
@@ -63,10 +71,16 @@ int maxflystickArmPos = 5;
 
 int tabVar = 1;
 
+bool twoStickMode = true;  // toggles single or float stick drive
+int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
+
+const float autonDriveMult = 1.0;
+// unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
+
 #pragma endregion
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region HelperFunctions //unit conversions and whatnot
@@ -120,14 +134,18 @@ void lcdControl() {
 #pragma endregion
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region PID //the code behind the autonomous Proportional Integral Derivative controller
 
-#pragma region PIDVariables
+#pragma region PIDVariables // holds all variables required for the PID controller
+
+// many of these are unneccesarily global / nonstatic, but I find the somewhat negligible innefficiencies
+// to be worth the ease of understanding / workability, especially for those newer to robotics and programming
 
 // control variables
+
 bool drivePIDIsEnabled = false;
 bool autonPIDIsEnabled = true;
 
@@ -169,22 +187,13 @@ float errorIntegralR;
 
 float rotationalPower = 0;
 
-// the second set of "rotational" storage vars above are technically useless, as
-// the code executes in such a way that only one set of vars is needed to
-// produce both outputs. however, readability is nice change if memory ever
-// becomes an issue
+// the second set of "rotational" storage vars above are technically useless, as the code executes in such a way that only one set of vars is needed
+// to produce both outputs. however, readability is nice. change if memory ever becomes an issue
 
 #pragma endregion  // end of PID variable declaration
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
-///// Control Variables //////
-
-bool twoStickMode = true;  // toggles single or float stick drive
-int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
-
-const float autonDriveMult = 1.0;  // unused variable to increase / decrease speed of autonomous driving.
-                                   // just make a good drivetrain lol you'll be fine
 int stuckTimeStamp = 0;
 int avgMotorPosition = 0;
 
@@ -243,8 +252,7 @@ bool AutonPID() {
   return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 1.5) ? true : false;  // return true if done movement
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 #pragma region debugFunctions
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -331,7 +339,7 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
 #pragma endregion  // end of PID block
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region ActualCompetitionFunctions
@@ -429,8 +437,7 @@ vector<int> ReadBopItOutputs() {
 
 
 
-void controllerAutonSelect() {  // cool, efficient, but controllers are disabled
-                                // during pre-auton so entirely useless
+void controllerAutonSelect() {  // cool, efficient, but controllers are disabled during pre-auton so entirely useless
 
   while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
     lcdControl();
@@ -514,8 +521,7 @@ int flywheelSpeed = 0;
 int prevFlywheelSpeed = 0;
 int prevArmPos = 0;
 bool wingsOut = false;
-int endDelayTimeStamp = 0;  // holds the minimum objective time at which the current step can end
-//                          (ex. flywheel spinning step lasts a min of 30 sec)
+int endDelayTimeStamp = 0;  // holds the timestamp at which the current step will end
 
 vector<float> autonCommands[50];
 
@@ -543,14 +549,12 @@ void ReadAutonStep() {
 int rotationalAccelX = 0;
 int lateralAccelX = 0;
 
-int driveMult = 5.5;
-
 bool driveReversed = false;
 int reverseDrive = 1;
 
 void DrivingControl(int8_t printingPage) {  // resoponsible for user control of the drivetrain
 
-  if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive, including steering
+  if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
     driveReversed = !driveReversed;
     LDrive.set_reversed(!driveReversed);
     RDrive.set_reversed(driveReversed);
@@ -558,41 +562,55 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
     reverseDrive = (reverseDrive >= 0) ? -1 : 1;
   }
 
-  // Y is forward/back, X is left/right
+  // taking the position of both controller sticks. Y is forward/back, X is left/right
 
-  int XStickPos = twoStickMode ? (MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) * reverseDrive)
-                               : (MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_X) * reverseDrive);
+  float YStickPercent = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27;                    // w on graph
+  float XStickPercent = (MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27 * reverseDrive);  // s on graph
 
-  float YStickPos = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y);
 
-  // implementing a slow initial acceleration for precision movements
+  // increasing/decreasing the acceleratory variables whether the sticks are held down or not
 
-  lateralAccelX += (abs(YStickPos) > deadband) && (lateralAccelX <= 100) ? 2 : -2;
-  rotationalAccelX += (abs(XStickPos) > deadband) && (rotationalAccelX <= 100) ? 2 : -2;
+  static float fullAccelDelay = 0.5;
+  static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  int lateralOutput = AccelSmoothingFunc((YStickPos / 1.27), lateralAccelX);  // AccelSmoothingFunc((YStickPos), (globalTimer - YAccelTimeStamp));
-  int rotationalOutput =
-      AccelSmoothingFunc((XStickPos / 1.27), rotationalAccelX);  // AccelSmoothingFunc((XStickPos) * RCTurnDamping, (globalTimer - XAccelTimeStamp));
+  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick; // Y(x) on graph
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick; // X(x) on graph
 
-  int leftOutput = 6 * ((lateralOutput + rotationalOutput));
-  int rightOutput = 6 * ((lateralOutput - rotationalOutput));
 
-  /*if ((abs(YStickPos) + abs(XStickPos)) >= deadband) {
-    LDrive.move_velocity(leftOutput - (XStickPos / 2.54)));
-    RDrive.move_velocity(rightOutput - (XStickPos / 2.54));
+  // applying the acceleratory curve to the stick inputs
+
+  int lateralOutput = AccelSmoothingFunc(YStickPercent, lateralAccelX);  // multiplies the stick values by the output of the accel smoothing function
+  int rotationalOutput = AccelSmoothingFunc(XStickPercent, rotationalAccelX);
+
+  // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values.
+  // Limits situations in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
+  int maxOutputAdjust = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph
+
+
+  // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
+
+  int leftOutput = (lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1;
+  int rightOutput = ((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1;
+
+  /*if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+    LDrive.move_velocity(6 * leftOutput); //stepping up the output from 0-100% to 0-600rpm
+    RDrive.move_velocity(6 * rightOutput);
   } else {
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
   }*/
 
-  PrintToController("LDrive: %d", (leftOutput - (XStickPos / 4)), 1, printingPage);
-  PrintToController("RDrive: %d", (rightOutput - (XStickPos / 4)), 2, printingPage);
+
+  // diagnostic printing
+  PrintToController("LDrive: %d", (10 * leftOutput), 1, printingPage);
+  PrintToController("RDrive: %d", (10 * rightOutput), 2, printingPage);
 
 
-  PrintToController("XOutput: %d", rotationalOutput, 0, printingPage);
-  PrintToController("XMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
-  PrintToController("XOut %d", rotationalOutput, 2, printingPage + 1);
-}
+  PrintToController("YAccelX: %d", lateralAccelX, 0, printingPage + 1);
+  PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
+  PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
+
+}  // graphed and simulated at https://www.desmos.com/calculator/qt7vqvduh3, modelled in % power output by default
 
 
 
@@ -656,7 +674,7 @@ void WingsControl() {  // done
 #pragma endregion  // end of Bot controlling functions
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region Pregame //code which executes before a game starts
@@ -819,7 +837,7 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
 #pragma endregion
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 
@@ -843,8 +861,7 @@ void autonomous() {
   FullDrive.move_velocity(0);
 
   while (true) {
-    lcdControl();                                // allows the LCD screen to show multiple pages of
-                                                 // diagnostics, press left/right arrows to change pages
+    lcdControl();  // allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
     FlywheelM.move_velocity(flywheelSpeed * 2);  // spins the flywheel at the desired speed (input as a percent)
     if ((ArmRot.get_angle() / 100) < 306) {
       AdjustFlystick(true);
@@ -887,10 +904,7 @@ void autonomous() {
         globalTimer++;
         delay(tickDelay);
       }
-    } else if ((MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete) &&
-               (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) {  // MainControl.get_digital_new_press(DIGITAL_X)
-                                                                             // || stepPIDIsComplete
-
+    } else if ((MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete) && (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) {
       autonStep++;
 
       stepChangeTimeStamp = globalTimer;
@@ -907,7 +921,7 @@ void autonomous() {
 
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 
