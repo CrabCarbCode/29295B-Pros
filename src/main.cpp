@@ -564,7 +564,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // increasing/decreasing the acceleratory variables whether the sticks are held down or not
 
-  static float fullAccelDelay = 0.5;
+  static float fullAccelDelay = 0.25;
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
   lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;        // Y(x) on graph
@@ -583,16 +583,16 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
 
-  int leftOutput = (lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1;
-  int rightOutput = ((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1;
+  int leftOutput = clamp((((lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1), -100, 100);
+  int rightOutput = clamp((((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1), -100, 100);
 
-  /*if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+  if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
     LDrive.move_velocity(6 * leftOutput); //stepping up the output from 0-100% to 0-600rpm
     RDrive.move_velocity(6 * rightOutput);
   } else {
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
-  }*/
+  }
 
 
   // diagnostic printing
