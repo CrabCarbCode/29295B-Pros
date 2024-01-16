@@ -28,6 +28,13 @@ Sometimes things just break, like the abs() function was demanding 0 args.
 Restarting the program fixed this Strings do not work in vex without external
 library shenanigans
 */
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
+#pragma region GlobalVars
 
 ///// Control Variables //////
 
@@ -37,13 +44,6 @@ int deadband = 5;          // if the controller sticks are depressed less than d
 const float autonDriveMult =
     1.0;  // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
-#pragma endregion
-
-
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-
-#pragma region GlobalVars
 
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
@@ -70,12 +70,6 @@ float defaultArmPos;
 int maxflystickArmPos = 5;
 
 int tabVar = 1;
-
-bool twoStickMode = true;  // toggles single or float stick drive
-int deadband = 12;         // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
-
-const float autonDriveMult = 1.0;
-// unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
 #pragma endregion
 
@@ -416,21 +410,28 @@ int bopItSelectTimeStamp = 0;
 int selectorStage = 0;
 int selectedRoute = 3;
 
+int startingWheelPos;
+
 vector<int> ReadBopItOutputs() {
+  lcdControl();
+
   int armInput = (ArmRot.get_angle() / 10000);
 
-  int wheelDelta = abs(FlywheelM.get_position() - prevWheelPos);
+  int wheelDelta = abs(startingWheelPos - prevWheelPos);
+
+  PrintToController("wheelDelt: %d", wheelDelta, 0, 2);
 
   int wheelInput;
 
-  if (IsWithinRange(wheelDelta, 25, 75) && timeSincePoint(bopItSelectTimeStamp) > 10) {
-    wheelInput = (wheelDelta == abs(wheelDelta)) ? 1 : -1;
+  if (IsWithinRange(wheelDelta, (startingWheelPos + 50), (startingWheelPos + 100)) && timeSincePoint(bopItSelectTimeStamp) > 10) {
+    wheelInput = (wheelDelta == abs(wheelDelta)) ? -1 : 1;
     bopItSelectTimeStamp = globalTimer;
+    startingWheelPos = FlywheelM.get_position();
   } else {
     wheelInput = 0;
   }
 
-  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position()) : prevWheelPos;
+  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position() - startingWheelPos) : prevWheelPos;
 
   return {armInput, wheelInput};
 }
@@ -570,11 +571,11 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // increasing/decreasing the acceleratory variables whether the sticks are held down or not
 
-  static float fullAccelDelay = 0.5;
+  static float fullAccelDelay = 0.25;
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick; // Y(x) on graph
-  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick; // X(x) on graph
+  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;        // Y(x) on graph
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph,
 
 
   // applying the acceleratory curve to the stick inputs
@@ -584,21 +585,22 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values.
   // Limits situations in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-  int maxOutputAdjust = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph
+  int maxOutExponent = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph abs(YStickPercent * XStickPercent) / pow(100, 2);
+  int maxOutputAdjust = (XStickPercent / abs(XStickPercent)) * powf(rotationalAccelX, maxOutExponent);
 
 
   // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
 
-  int leftOutput = (lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1;
-  int rightOutput = ((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1;
+  int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
+  int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
 
-  /*if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
-    LDrive.move_velocity(6 * leftOutput); //stepping up the output from 0-100% to 0-600rpm
+  if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+    LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
     RDrive.move_velocity(6 * rightOutput);
   } else {
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
-  }*/
+  }
 
 
   // diagnostic printing
@@ -610,7 +612,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
   PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
 
-}  // graphed and simulated at https://www.desmos.com/calculator/qt7vqvduh3, modelled in % power output by default
+}  // graphed and simulated at https://www.desmos.com/calculator/11v6bhvklx, modelled in % power output by default
 
 
 
@@ -685,6 +687,7 @@ void initialize() {
 
   FullDrive.tare_position();
   FullDrive.set_zero_position(0);
+  startingWheelPos = FlywheelM.get_position();
 
   mStartPosL = LDriveMidM.get_position();
   mStartPosR = RDriveMidM.get_position();
@@ -707,7 +710,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
 
-  while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
+  while ((selectorStage < 2) && (globalTimer < (20 * timerTickRate))) {
     selectorStage += ReadBopItOutputs().at(1);  // 0 = no spin, 1 = fwd, -1 = bwd. Has a cooldown between inputs
 
     switch (selectorStage) {
@@ -926,12 +929,12 @@ void autonomous() {
 
 
 void opcontrol() {
-  // competition_initialize();
+  competition_initialize();
   // autonomous();
 
   // tunePID();
 
-  flywheelFWD = true;
+  /*flywheelFWD = true;
 
   flywheelOn = false;
 
@@ -939,12 +942,12 @@ void opcontrol() {
 
   while (true) {
     DrivingControl(1);
-    // WingsControl();
-    // FlystickControl(-1);
-    // AdjustFlystick(true);
+    WingsControl();
+    FlystickControl(-1);
+    AdjustFlystick(true);
     lcdControl();
 
     globalTimer++;
     delay(tickDelay);
-  }
+  }*/
 }
