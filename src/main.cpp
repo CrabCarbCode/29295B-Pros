@@ -410,21 +410,28 @@ int bopItSelectTimeStamp = 0;
 int selectorStage = 0;
 int selectedRoute = 3;
 
+int startingWheelPos;
+
 vector<int> ReadBopItOutputs() {
+  lcdControl();
+
   int armInput = (ArmRot.get_angle() / 10000);
 
-  int wheelDelta = abs(FlywheelM.get_position() - prevWheelPos);
+  int wheelDelta = abs(startingWheelPos - prevWheelPos);
+
+  PrintToController("wheelDelt: %d", wheelDelta, 0, 2);
 
   int wheelInput;
 
-  if (IsWithinRange(wheelDelta, 25, 75) && timeSincePoint(bopItSelectTimeStamp) > 10) {
-    wheelInput = (wheelDelta == abs(wheelDelta)) ? 1 : -1;
+  if (IsWithinRange(wheelDelta, (startingWheelPos + 50), (startingWheelPos + 100)) && timeSincePoint(bopItSelectTimeStamp) > 10) {
+    wheelInput = (wheelDelta == abs(wheelDelta)) ? -1 : 1;
     bopItSelectTimeStamp = globalTimer;
+    startingWheelPos = FlywheelM.get_position();
   } else {
     wheelInput = 0;
   }
 
-  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position()) : prevWheelPos;
+  prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position() - startingWheelPos) : prevWheelPos;
 
   return {armInput, wheelInput};
 }
@@ -568,7 +575,11 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
   lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;        // Y(x) on graph
+<<<<<<< HEAD
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph,
+=======
   rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
+>>>>>>> e4f1f53720ce5269628fb333173133115e1bb7e1
 
 
   // applying the acceleratory curve to the stick inputs
@@ -578,16 +589,25 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values.
   // Limits situations in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-  int maxOutputAdjust = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph
+  int maxOutExponent = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph abs(YStickPercent * XStickPercent) / pow(100, 2);
+  int maxOutputAdjust = (XStickPercent / abs(XStickPercent)) * powf(rotationalAccelX, maxOutExponent);
 
 
   // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
 
+<<<<<<< HEAD
+  int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
+  int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
+
+  if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+    LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
+=======
   int leftOutput = clamp((((lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1), -100, 100);
   int rightOutput = clamp((((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1), -100, 100);
 
   if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
     LDrive.move_velocity(6 * leftOutput); //stepping up the output from 0-100% to 0-600rpm
+>>>>>>> e4f1f53720ce5269628fb333173133115e1bb7e1
     RDrive.move_velocity(6 * rightOutput);
   } else {
     LDrive.move_velocity(0);
@@ -604,7 +624,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
   PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
 
-}  // graphed and simulated at https://www.desmos.com/calculator/qt7vqvduh3, modelled in % power output by default
+}  // graphed and simulated at https://www.desmos.com/calculator/11v6bhvklx, modelled in % power output by default
 
 
 
@@ -679,6 +699,7 @@ void initialize() {
 
   FullDrive.tare_position();
   FullDrive.set_zero_position(0);
+  startingWheelPos = FlywheelM.get_position();
 
   mStartPosL = LDriveMidM.get_position();
   mStartPosR = RDriveMidM.get_position();
@@ -701,7 +722,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
 
-  while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
+  while ((selectorStage < 2) && (globalTimer < (20 * timerTickRate))) {
     selectorStage += ReadBopItOutputs().at(1);  // 0 = no spin, 1 = fwd, -1 = bwd. Has a cooldown between inputs
 
     switch (selectorStage) {
@@ -920,12 +941,12 @@ void autonomous() {
 
 
 void opcontrol() {
-  // competition_initialize();
+  competition_initialize();
   // autonomous();
 
   // tunePID();
 
-  flywheelFWD = true;
+  /*flywheelFWD = true;
 
   flywheelOn = false;
 
@@ -933,12 +954,12 @@ void opcontrol() {
 
   while (true) {
     DrivingControl(1);
-    // WingsControl();
-    // FlystickControl(-1);
-    // AdjustFlystick(true);
+    WingsControl();
+    FlystickControl(-1);
+    AdjustFlystick(true);
     lcdControl();
 
     globalTimer++;
     delay(tickDelay);
-  }
+  }*/
 }
