@@ -577,11 +577,9 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   static float fullAccelDelay = 0.25;
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;                   // Y(x) on graph
-<<<<<<< HEAD
-  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;             // X(x) on graph,
-  == == == = rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
->>>>>>> e4f1f53720ce5269628fb333173133115e1bb7e1
+  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
+
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
 
   // applying the acceleratory curve to the stick inputs
