@@ -575,7 +575,11 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
   lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;        // Y(x) on graph
+<<<<<<< HEAD
   rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph,
+=======
+  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
+>>>>>>> e4f1f53720ce5269628fb333173133115e1bb7e1
 
 
   // applying the acceleratory curve to the stick inputs
@@ -591,11 +595,19 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
 
+<<<<<<< HEAD
   int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
   int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
 
   if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
     LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
+=======
+  int leftOutput = clamp((((lateralOutput + rotationalOutput) - powf((XStickPercent / 2.54), maxOutputAdjust) + 1), -100, 100);
+  int rightOutput = clamp((((lateralOutput - rotationalOutput)) + powf((XStickPercent / 2.54), maxOutputAdjust) - 1), -100, 100);
+
+  if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+    LDrive.move_velocity(6 * leftOutput); //stepping up the output from 0-100% to 0-600rpm
+>>>>>>> e4f1f53720ce5269628fb333173133115e1bb7e1
     RDrive.move_velocity(6 * rightOutput);
   } else {
     LDrive.move_velocity(0);
