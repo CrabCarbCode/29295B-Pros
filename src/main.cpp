@@ -420,6 +420,9 @@ vector<int> ReadBopItOutputs() {
   int wheelDelta = abs(startingWheelPos - prevWheelPos);
 
   PrintToController("wheelDelt: %d", wheelDelta, 0, 2);
+  PrintToController("refPos: %d", startingWheelPos, 1, 2);
+  PrintToController("prevPos: %d", prevWheelPos, 2, 2);
+
 
   int wheelInput;
 
