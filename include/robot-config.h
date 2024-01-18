@@ -26,7 +26,7 @@ ADIDigitalOut WingPL('H');
 Imu Inertial(4);  // initializing the Inertial sensor
 Rotation ArmRot(20);
 
-Motor_Group LDrive({LDriveFrontM, LDriveBackM});
-Motor_Group RDrive({RDriveFrontM, RDriveBackM});
+Motor_Group LDrive({LDriveFrontM, LDriveMidM, LDriveBackM});
+Motor_Group RDrive({RDriveFrontM, RDriveMidM, RDriveBackM});
 
-Motor_Group FullDrive({LDriveFrontM, LDriveBackM});
+Motor_Group FullDrive({LDriveFrontM, RDriveBackM});
