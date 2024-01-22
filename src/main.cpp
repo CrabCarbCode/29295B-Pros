@@ -41,9 +41,8 @@ library shenanigans
 bool twoStickMode = true;  // toggles single or float stick drive
 int deadband = 5;          // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 
-const float autonDriveMult =
-    1.0;  // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
-
+const float autonDriveMult = 1.0;
+// unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
 const float Pi = 3.14159265358;
 const float e = 2.71828182845;
@@ -53,8 +52,8 @@ int mStartPosR;
 
 int globalTimer = 0;
 const int timerTickRate = 50;  // the number of 'ticks' in one second
-const int tickDelay = 1000 / timerTickRate;
-const int minPrintingDelay = 3;  // std::ceil(50 / tickDelay);
+const int tickDeltaTime = 1000 / timerTickRate;
+const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
 
 const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
@@ -131,6 +130,67 @@ void lcdControl() {
 // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
+
+#pragma region GPSAtHome
+
+#pragma region relativeTracking
+
+vector<double> prevVelocity;
+
+vector<double> calculateKinematics(bool printing, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
+  vector<double> currAcceleration;
+
+
+  // doesn't like it when I try to declare the vector in one line so we're doing it separately
+  currAcceleration[0] = Inertial.get_accel().x;
+  currAcceleration[1] = Inertial.get_accel().y;
+  currAcceleration[2] = Inertial.get_accel().z;
+
+  vector<double> currVelocity;
+  vector<double> distTravelled;
+
+  for (int i = 0; i < 3; i++) {  // tracks velocity / distance travelled over the current tick in all 3 axis
+    currVelocity[i] = currAcceleration.at(i) * tickDeltaTime + prevVelocity.at(i);
+    distTravelled[i] = (currAcceleration.at(i) * tickDeltaTime * 0.5) + (prevVelocity.at(i) * tickDeltaTime);
+  }
+
+  prevVelocity = currVelocity;
+  return getVelocity ? currVelocity : distTravelled;
+}
+
+#pragma endregion
+
+
+
+#pragma region globalTracking
+
+vector<double> globalPosition;
+vector<double> totalDist;
+
+vector<double> updateGlobalPosition(bool printing) {
+  for (int i = 0; i < 3; i++) {  // tracks displacement across all axis
+    totalDist[i] += calculateKinematics(true, false).at(i);
+  }
+
+  float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
+
+  float xMultiplier = (fabs(heading) < 90) ? sinf(abs(heading)) : -sinf(abs(heading));  // this math sucks and is super jank
+  // should fix later
+  float YMultiplier = (heading == fabs(heading)) ? cosf(abs(heading)) : -cosf(abs(heading));
+
+  // identify angle of heading
+  // identify component of displacement change that should be added to each coordinate
+  // combine
+}
+
+#pragma endregion
+
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
 #pragma region PID //the code behind the autonomous Proportional Integral Derivative controller
 
 #pragma region PIDVariables // holds all variables required for the PID controller
@@ -194,7 +254,7 @@ int avgMotorPosition = 0;
 bool AutonPID() {
   if (autonPIDIsEnabled) {
     // sets heading from -180 < h < 180, meaning we turn the correct direction from error
-    float heading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
+    float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
 
     ///////////////////////////////////////
     //////        Lateral PID        //////
@@ -324,7 +384,7 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
     }
 
     globalTimer++;
-    delay(tickDelay);
+    delay(tickDeltaTime);
   }
 }
 
@@ -494,7 +554,7 @@ void controllerAutonSelect() {  // cool, efficient, but controllers are disabled
     }
 
     globalTimer++;  // need timer for print function
-    delay(tickDelay);
+    delay(tickDeltaTime);
   }
 
   PrintToController("Auton %d Selected", selectedRoute, 1, 1);
@@ -577,7 +637,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   static float fullAccelDelay = 0.25;
   static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
+  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? 2 * ptsPerTick : 2 * -ptsPerTick;  // Y(x) on graph
 
   rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
@@ -680,8 +740,7 @@ void WingsControl() {  // done
 #pragma endregion  // end of Bot controlling functions
 
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// //
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 #pragma region Pregame //code which executes before a game starts
@@ -750,7 +809,7 @@ void competition_initialize() {  // auton selector (bop-it!)
     }
 
     globalTimer++;  // timer for print function and emergency killswitch
-    delay(tickDelay);
+    delay(tickDeltaTime);
   }
 
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
@@ -845,8 +904,7 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
 #pragma endregion
 
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// //
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 
@@ -911,7 +969,7 @@ void autonomous() {
         PrintToController("Out of bounds", 0, 1, 1);
 
         globalTimer++;
-        delay(tickDelay);
+        delay(tickDeltaTime);
       }
     } else if ((MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete) && (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) {
       autonStep++;
@@ -924,28 +982,25 @@ void autonomous() {
     }
 
     globalTimer++;
-    delay(tickDelay);
+    delay(tickDeltaTime);
   }
 }
 
 
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// //
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
 
 void opcontrol() {
-  competition_initialize();
-  // autonomous();
+  // competition_initialize();
+  //  autonomous();
 
   // tunePID();
 
-  /*flywheelFWD = true;
+  flywheelFWD = true;
 
   flywheelOn = false;
-
-  // flystickArmPos = 3; //ACTUAL DRIVE CODE, UNCOMMENT IF UPLOADING DRIVE
 
   while (true) {
     DrivingControl(1);
@@ -955,6 +1010,6 @@ void opcontrol() {
     lcdControl();
 
     globalTimer++;
-    delay(tickDelay);
-  }*/
+    delay(tickDeltaTime);
+  }
 }
