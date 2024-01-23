@@ -181,8 +181,8 @@ void updateGlobalPosition(bool isPrinting) {
   // identify component of displacement change that should be added to each coordinate
   float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
 
-  static vector<float> XYZMultipliers = {(fabs(heading) < 90) ? sinf(abs(heading)) : -sinf(abs(heading)),
-                                         (heading == fabs(heading)) ? cosf(abs(heading)) : -cosf(abs(heading)), 1};
+  static vector<float> XYZMultipliers = {(fabs(heading) < 90) ? cosf(abs(heading)) : -cosf(abs(heading)),
+                                         (heading == fabs(heading)) ? sinf(abs(heading)) : -sinf(abs(heading)), 1};
 
 
   for (int i = 0; i < 3; i++) {  // tracks displacement across all axis, slow and prolly doesn't work
