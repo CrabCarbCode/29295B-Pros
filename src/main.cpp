@@ -137,7 +137,7 @@ void lcdControl() {
 
 vector<double> prevVelocity;
 
-vector<double> calculateKinematics(bool printing, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
+vector<double> calculateKinematics(bool isPrinting, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
   vector<double> currAcceleration;
 
 
@@ -164,23 +164,32 @@ vector<double> calculateKinematics(bool printing, bool getVelocity) {  // tracks
 
 #pragma region globalTracking
 
-vector<double> globalPosition;
+vector<double> globalCoordinates;
+vector<double> globalVelocities;
 vector<double> totalDist;
 
-vector<double> updateGlobalPosition(bool printing) {
-  for (int i = 0; i < 3; i++) {  // tracks displacement across all axis
+void updateGlobalPosition(bool isPrinting) {
+  // capturing values of displacement and velocity over the last tick
+  vector<double> currDisplacements = calculateKinematics(isPrinting, false);
+  vector<double> currVelocities = calculateKinematics(isPrinting, true);
+
+
+  for (int i = 0; i < 3; i++) {  // tracks displacement across all axis, slow and prolly doesn't work
     totalDist[i] += calculateKinematics(true, false).at(i);
   }
 
+  // identify component of displacement change that should be added to each coordinate
   float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
 
-  float xMultiplier = (fabs(heading) < 90) ? sinf(abs(heading)) : -sinf(abs(heading));  // this math sucks and is super jank
-  // should fix later
-  float YMultiplier = (heading == fabs(heading)) ? cosf(abs(heading)) : -cosf(abs(heading));
+  static vector<float> XYZMultipliers = {(fabs(heading) < 90) ? sinf(abs(heading)) : -sinf(abs(heading)),
+                                         (heading == fabs(heading)) ? cosf(abs(heading)) : -cosf(abs(heading)), 1};
 
-  // identify angle of heading
-  // identify component of displacement change that should be added to each coordinate
-  // combine
+
+  for (int i = 0; i < 3; i++) {  // tracks displacement across all axis, slow and prolly doesn't work
+    totalDist[i] += currDisplacements.at(i);
+    globalCoordinates[i] += currDisplacements.at(i) * XYZMultipliers.at(i);
+    globalVelocities[i] += currVelocities.at(i) * XYZMultipliers.at(i);
+  }
 }
 
 #pragma endregion
