@@ -188,7 +188,7 @@ void updateGlobalPosition(bool isPrinting) {
   float thetaPitch = (Inertial.get_pitch() > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
   float thetaYaw = (Inertial.get_yaw() > 180) ? (Inertial.get_yaw() - 360) : Inertial.get_yaw();
 
-  // decomposing the
+  // decomposing the displacement vectors calculated from the inertial, then reconstructing them into the change in coordinates
   // this math REALLY fucking sucks, but I'm not sure theres a better / more efficient way to do this than hardcoding.
   globalCoordinates[0] += currDisplacements.at(0) * cosf(thetaHeading) * cosf(thetaPitch)  // x component of forward displacement
                           + currDisplacements.at(1) * sinf(thetaHeading) * cosf(thetaYaw)  // x component of sideways displacement
@@ -201,6 +201,20 @@ void updateGlobalPosition(bool isPrinting) {
   globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaPitch)                      // z component of forward displacement
                           + currDisplacements.at(1) * sinf(thetaYaw)                      // z component of sideways displacement
                           + currDisplacements.at(2) * cosf(thetaPitch) * cosf(thetaYaw);  // z component of vertical displacement
+
+  if (isPrinting) {
+    PrintToController("X Coord: %d", globalCoordinates.at(0), 0, 1);
+    PrintToController("Y Coord: %d", globalCoordinates.at(1), 1, 1);
+    PrintToController("Z Coord: %d", globalCoordinates.at(2), 2, 1);
+
+    PrintToController("Heading: %d", thetaHeading, 0, 3);
+    PrintToController("Pitch: %d", thetaPitch, 1, 3);
+    PrintToController("Yaw: %d", thetaYaw, 2, 3);
+
+    PrintToController("Fwd displ.: %d", currDisplacements.at(0), 0, 2);
+    PrintToController("Side displ.: %d", currDisplacements.at(1), 1, 2);
+    PrintToController("Vert. displ.: %d", currDisplacements.at(2), 2, 2);
+  }
 }
 
 #pragma endregion
