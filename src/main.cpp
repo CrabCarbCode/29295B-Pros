@@ -178,18 +178,12 @@ void updateGlobalPosition(bool isPrinting) {
     totalDist[i] += calculateKinematics(true, false).at(i);
   }
 
+
+
   // identify component of displacement change that should be added to each coordinate
-  float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
-
-  static vector<float> XYZMultipliers = {(fabs(heading) < 90) ? cosf(abs(heading)) : -cosf(abs(heading)),
-                                         (heading == fabs(heading)) ? sinf(abs(heading)) : -sinf(abs(heading)), 1};
-
-
-  for (int i = 0; i < 3; i++) {  // tracks displacement across all axis, slow and prolly doesn't work
-    totalDist[i] += currDisplacements.at(i);
-    globalCoordinates[i] += currDisplacements.at(i) * XYZMultipliers.at(i);
-    globalVelocities[i] += currVelocities.at(i) * XYZMultipliers.at(i);
-  }
+  float thetaHeading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
+  float thetaPitch = (Inertial.get_pitch > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
+  float thetaYaw = (Inertial.get_yaw() > 180) ? (Inertial.get_yaw() - 360) : Inertial.get_yaw();
 }
 
 #pragma endregion
@@ -762,8 +756,8 @@ void initialize() {
   FullDrive.set_zero_position(0);
   startingWheelPos = FlywheelM.get_position();
 
-  mStartPosL = LDriveMidM.get_position();
-  mStartPosR = RDriveMidM.get_position();
+  mStartPosL = LDriveTopM.get_position();
+  mStartPosR = RDriveTopM.get_position();
 
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
 
@@ -967,7 +961,7 @@ void autonomous() {
 
     PrintToController("Complete?: %d", stepPIDIsComplete, 0, 4);
     PrintToController("TargDist: %d", desiredDist, 1, 4);
-    PrintToController("ErrorL: %d", (RDriveMidM.get_position() + LDriveMidM.get_position()) / 2, 2, 4);
+    PrintToController("ErrorL: %d", (RDriveTopM.get_position() + LDriveTopM.get_position()) / 2, 2, 4);
 
 #pragma endregion
 
@@ -1012,10 +1006,11 @@ void opcontrol() {
   flywheelOn = false;
 
   while (true) {
-    DrivingControl(1);
+    /*DrivingControl(1);
     WingsControl();
     FlystickControl(-1);
-    AdjustFlystick(true);
+    AdjustFlystick(true);*/
+    updateGlobalPosition();
     lcdControl();
 
     globalTimer++;

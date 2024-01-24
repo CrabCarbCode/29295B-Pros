@@ -8,25 +8,25 @@
 pros::Controller MainControl(E_CONTROLLER_MASTER);  // declared with "pros::" to avoid ambiguity with stock vex controller
 
 
-Motor LDriveFrontM(5, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
-Motor LDriveMidM(4, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
+Motor LDriveFrontM(4, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
+Motor LDriveTopM(3, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 Motor LDriveBackM(1, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 
 Motor RDriveFrontM(7, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
-Motor RDriveMidM(10, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
-Motor RDriveBackM(8, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
+Motor RDriveTopM(9, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
+Motor RDriveBackM(10, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 
-Motor FlystickArmM(20, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
+Motor FlystickArmM(18, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 
-Motor FlywheelM(18, E_MOTOR_GEARSET_18, false, E_MOTOR_ENCODER_DEGREES);
+Motor FlywheelM(19, E_MOTOR_GEARSET_18, false, E_MOTOR_ENCODER_DEGREES);
 
 ADIDigitalOut WingPR('G');
 ADIDigitalOut WingPL('H');
 
-Imu Inertial(9);  // initializing the Inertial sensor
-Rotation ArmRot(19);
+Imu Inertial(17);  // initializing the Inertial sensor
+Rotation ArmRot(20);
 
-Motor_Group LDrive({LDriveFrontM, LDriveMidM, LDriveBackM});
-Motor_Group RDrive({RDriveFrontM, RDriveMidM, RDriveBackM});
+Motor_Group LDrive({LDriveFrontM, LDriveTopM, LDriveBackM});  // LDriveFrontM, LDriveTopM, LDriveBackM
+Motor_Group RDrive({RDriveFrontM, RDriveTopM, RDriveBackM});  // RDriveFrontM, RDriveTopM, RDriveBackM
 
-Motor_Group FullDrive({LDriveFrontM, LDriveMidM, LDriveBackM, RDriveFrontM, RDriveMidM, RDriveBackM});
+Motor_Group FullDrive({LDriveFrontM, LDriveTopM, LDriveBackM, RDriveFrontM, RDriveTopM, RDriveBackM});
