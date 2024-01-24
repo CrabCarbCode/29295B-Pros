@@ -8,7 +8,7 @@
 pros::Controller MainControl(E_CONTROLLER_MASTER);  // declared with "pros::" to avoid ambiguity with stock vex controller
 
 
-Motor LDriveFrontM(4, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
+Motor LDriveFrontM(8, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 Motor LDriveTopM(3, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 Motor LDriveBackM(1, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES);
 

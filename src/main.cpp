@@ -54,7 +54,7 @@ int mStartPosL;
 int mStartPosR;
 
 int globalTimer = 0;
-const int timerTickRate = 50;  // the number of 'ticks' in one second
+const int timerTickRate = 10;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / timerTickRate;
 const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
 
@@ -133,7 +133,6 @@ void lcdControl() {
 // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
-
 #pragma region GPSAtHome
 
 // this is both my magnum opus and the worst thing I've ever done i hate everything so so much
@@ -143,24 +142,22 @@ void lcdControl() {
 vector<double> prevVelocity;
 
 vector<double> calculateKinematics(bool isPrinting, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
-  vector<double> currAcceleration;
 
-
-  // doesn't like it when I try to declare the vector in one line so we're doing it separately
-  currAcceleration[0] = Inertial.get_accel().x;
-  currAcceleration[1] = Inertial.get_accel().y;
-  currAcceleration[2] = Inertial.get_accel().z;
+  pros::c::imu_accel_s_t InertialAccelReading = Inertial.get_accel();  // checking the inertial is costly, so we do it once and capture the result
+  vector<double> currAcceleration = {InertialAccelReading.x * 9.81, InertialAccelReading.y * 9.81, InertialAccelReading.z * 9.81};
 
   vector<double> currVelocity;
   vector<double> distTravelled;
 
   for (int i = 0; i < 3; i++) {  // tracks velocity / distance travelled over the current tick in all 3 axis
-    currVelocity[i] = currAcceleration.at(i) * tickDeltaTime + prevVelocity.at(i);
-    distTravelled[i] = (currAcceleration.at(i) * tickDeltaTime * 0.5) + (prevVelocity.at(i) * tickDeltaTime);
+
+    currVelocity[i] = 1;  //{currAcceleration[i] * tickDeltaTime + prevVelocity[i]};
+    // distTravelled[i] = 1;  //{(currAcceleration[i] * tickDeltaTime * 0.5) + (prevVelocity[i] * tickDeltaTime)};
   }
 
+
   prevVelocity = currVelocity;
-  return getVelocity ? currVelocity : distTravelled;
+  return getVelocity ? currAcceleration : distTravelled;
 }
 
 #pragma endregion
@@ -190,9 +187,9 @@ void updateGlobalPosition(bool isPrinting) {
 
   // decomposing the displacement vectors calculated from the inertial, then reconstructing them into the change in coordinates
   // this math REALLY fucking sucks, but I'm not sure theres a better / more efficient way to do this than hardcoding.
-  globalCoordinates[0] += currDisplacements.at(0) * cosf(thetaHeading) * cosf(thetaPitch)  // x component of forward displacement
-                          + currDisplacements.at(1) * sinf(thetaHeading) * cosf(thetaYaw)  // x component of sideways displacement
-                          + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // x component of vertical displacement
+  globalCoordinates.at(0) += currDisplacements.at(0) * cosf(thetaHeading) * cosf(thetaPitch)  // x component of forward displacement
+                             + currDisplacements.at(1) * sinf(thetaHeading) * cosf(thetaYaw)  // x component of sideways displacement
+                             + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // x component of vertical displacement
 
   globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaHeading) * cosf(thetaPitch)  // y component of forward displacement
                           + currDisplacements.at(1) * cosf(thetaHeading) * cosf(thetaYaw)  // y component of sideways displacement
@@ -203,17 +200,18 @@ void updateGlobalPosition(bool isPrinting) {
                           + currDisplacements.at(2) * cosf(thetaPitch) * cosf(thetaYaw);  // z component of vertical displacement
 
   if (isPrinting) {
-    PrintToController("X Coord: %d", globalCoordinates.at(0), 0, 1);
-    PrintToController("Y Coord: %d", globalCoordinates.at(1), 1, 1);
-    PrintToController("Z Coord: %d", globalCoordinates.at(2), 2, 1);
+    PrintToController("X Coord: %d", globalCoordinates.at(0), 0, 2);  // print coordinates
+    PrintToController("Y Coord: %d", globalCoordinates.at(1), 1, 2);
+    PrintToController("Z Coord: %d", globalCoordinates.at(2), 2, 2);
 
-    PrintToController("Heading: %d", thetaHeading, 0, 3);
-    PrintToController("Pitch: %d", thetaPitch, 1, 3);
-    PrintToController("Yaw: %d", thetaYaw, 2, 3);
 
-    PrintToController("Fwd displ.: %d", currDisplacements.at(0), 0, 2);
-    PrintToController("Side displ.: %d", currDisplacements.at(1), 1, 2);
-    PrintToController("Vert. displ.: %d", currDisplacements.at(2), 2, 2);
+    PrintToController("Fwd displ.: %d", currDisplacements.at(0), 0, 3);  // print displacement
+    PrintToController("Side displ.: %d", currDisplacements.at(1), 1, 3);
+    PrintToController("Vert. displ.: %d", currDisplacements.at(2), 2, 3);
+
+    PrintToController("Heading: %d", thetaHeading, 0, 4);  // print angles
+    PrintToController("Pitch: %d", thetaPitch, 1, 4);
+    PrintToController("Yaw: %d", thetaYaw, 2, 4);
   }
 }
 
@@ -1036,13 +1034,22 @@ void opcontrol() {
 
   flywheelOn = false;
 
+  vector<double> currAcceleration;
+
   while (true) {
     /*DrivingControl(1);
     WingsControl();
     FlystickControl(-1);
     AdjustFlystick(true);*/
-    updateGlobalPosition(true);
+    // updateGlobalPosition(true);
     lcdControl();
+
+    vector<double> displacement = calculateKinematics(false, false);
+
+
+    PrintToController("Time: %d", globalTimer, 0, 1);
+    // PrintToController("XDispl: %d", displacement.at(0), 1, 1);
+    // PrintToController("XAccel: %d", currAcceleration.at(0) * 10, 2, 1);
 
     globalTimer++;
     delay(tickDeltaTime);
