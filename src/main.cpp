@@ -24,9 +24,12 @@ using namespace std;
 // here to document weird quirks of V5, VSCode, or this particular program
 
 /*
+
 Sometimes things just break, like the abs() function was demanding 0 args.
-Restarting the program fixed this Strings do not work in vex without external
-library shenanigans
+
+Restarting the program fixed this Strings do not work in vex without external library shenanigans
+
+This is my code, and thus it is my god given right to use it as a diary. ignore the strange comments
 */
 #pragma endregion
 
@@ -106,7 +109,7 @@ float AccelSmoothingFunc(float stickVal, int xInput) {
 
 
 void PrintToController(std::string prefix, float data, int row, int page) {
-  if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks
+  if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
     MainControl.clear();
   }
 
@@ -132,6 +135,8 @@ void lcdControl() {
 
 
 #pragma region GPSAtHome
+
+// this is both my magnum opus and the worst thing I've ever done i hate everything so so much
 
 #pragma region relativeTracking
 
@@ -178,12 +183,24 @@ void updateGlobalPosition(bool isPrinting) {
     totalDist[i] += calculateKinematics(true, false).at(i);
   }
 
-
-
   // identify component of displacement change that should be added to each coordinate
   float thetaHeading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
-  float thetaPitch = (Inertial.get_pitch > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
+  float thetaPitch = (Inertial.get_pitch() > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
   float thetaYaw = (Inertial.get_yaw() > 180) ? (Inertial.get_yaw() - 360) : Inertial.get_yaw();
+
+  // decomposing the
+  // this math REALLY fucking sucks, but I'm not sure theres a better / more efficient way to do this than hardcoding.
+  globalCoordinates[0] += currDisplacements.at(0) * cosf(thetaHeading) * cosf(thetaPitch)  // x component of forward displacement
+                          + currDisplacements.at(1) * sinf(thetaHeading) * cosf(thetaYaw)  // x component of sideways displacement
+                          + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // x component of vertical displacement
+
+  globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaHeading) * cosf(thetaPitch)  // y component of forward displacement
+                          + currDisplacements.at(1) * cosf(thetaHeading) * cosf(thetaYaw)  // y component of sideways displacement
+                          + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // y component of vertical displacement
+
+  globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaPitch)                      // z component of forward displacement
+                          + currDisplacements.at(1) * sinf(thetaYaw)                      // z component of sideways displacement
+                          + currDisplacements.at(2) * cosf(thetaPitch) * cosf(thetaYaw);  // z component of vertical displacement
 }
 
 #pragma endregion
@@ -1010,7 +1027,7 @@ void opcontrol() {
     WingsControl();
     FlystickControl(-1);
     AdjustFlystick(true);*/
-    updateGlobalPosition();
+    updateGlobalPosition(true);
     lcdControl();
 
     globalTimer++;
