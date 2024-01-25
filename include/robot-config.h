@@ -18,13 +18,16 @@ Motor RDriveBackM(10, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlystickArmM(18, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 
-Motor FlywheelM(19, E_MOTOR_GEARSET_18, false, E_MOTOR_ENCODER_DEGREES);
+Motor FlywheelM(14, E_MOTOR_GEARSET_18, false, E_MOTOR_ENCODER_DEGREES);
 
 ADIDigitalOut WingPR('G');
 ADIDigitalOut WingPL('H');
 
 Imu Inertial(17);  // initializing the Inertial sensor
 Rotation ArmRot(20);
+
+Motor_Group FwdDrive({LDriveFrontM, RDriveTopM, LDriveBackM});
+Motor_Group RvsDrive({RDriveFrontM, LDriveTopM, RDriveBackM});
 
 Motor_Group LDrive({LDriveFrontM, LDriveTopM, LDriveBackM});  // LDriveFrontM, LDriveTopM, LDriveBackM
 Motor_Group RDrive({RDriveFrontM, RDriveTopM, RDriveBackM});  // RDriveFrontM, RDriveTopM, RDriveBackM
