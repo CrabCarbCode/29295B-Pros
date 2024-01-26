@@ -54,7 +54,7 @@ int mStartPosL;
 int mStartPosR;
 
 int globalTimer = 0;
-const int timerTickRate = 10;  // the number of 'ticks' in one second
+const int timerTickRate = 50;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / timerTickRate;
 const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
 
@@ -82,6 +82,7 @@ int tabVar = 1;
 #pragma region HelperFunctions //unit conversions and whatnot
 
 const char *toChar(std::string string) { return string.c_str(); }
+
 
 int toInt(float val) { return val; }
 
@@ -145,18 +146,49 @@ std::array<double, 3> prevVelocity;
 
 std::array<double, 3> calculateKinematics(bool isPrinting, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
 
+  const float deltaTime = tickDeltaTime / 1000;
+
   pros::c::imu_accel_s_t InertialAccelReading = Inertial.get_accel();  // checking the inertial is costly, so we do it once and capture the result
   std::array<double, 3> currAcceleration = {InertialAccelReading.x * gAccel, InertialAccelReading.y * gAccel, InertialAccelReading.z * gAccel};
 
-  std::array<double, 3> currVelocity(3, 0.0);
-  std::array<double, 3> distTravelled(3, 0.0);
+  std::array<double, 3> currVelocity = {0.0, 0.0, 0.0};
+  std::array<double, 3> distTravelled = {0.0, 0.0, 0.0};
 
   for (int i = 0; i < 3; i++) {  // tracks velocity / distance travelled over the current tick in all 3 axis
 
-    currVelocity[i] = currAcceleration[i] * tickDeltaTime + prevVelocity[i];
-    distTravelled[i] = (currAcceleration[i] * tickDeltaTime * 0.5) + (prevVelocity[i] * tickDeltaTime);
+    currVelocity[i] = (currAcceleration[i] * deltaTime) + prevVelocity[i];
+    distTravelled[i] = (prevVelocity[i] * deltaTime) + (0.5 * currAcceleration[i] * powf(deltaTime, 2));
 
     prevVelocity[i] = currVelocity[i];  // caches the velocity of the current tick for use in the next tick
+  }
+
+  if (isPrinting) {
+    std::string accel = "Accel: ";
+    std::string prevVel = "PrevVel: ";
+    std::string currVel = "CurrVel: ";
+    std::string Displ = "Displ: ";
+
+    for (int i = 0; i < 3; ++i) {
+      accel += std::to_string(static_cast<int>(currAcceleration[i] * 100) / 100);
+      prevVel += std::to_string(static_cast<int>(prevVelocity[i] * 100) / 100);
+      currVel += std::to_string(static_cast<int>(currVelocity[i] * 100) / 100);
+      Displ += std::to_string(static_cast<int>(Displ[i] * 100) / 100);
+
+
+      if (i < 2) {
+        accel += ", ";
+        prevVel += ", ";
+        currVel += ", ";
+        Displ += ", ";
+      }
+    }  // blow up robot
+
+    PrintToController("Timer: %d", globalTimer, 0, 2);
+    PrintToController(currVel, 0, 1, 2);
+    PrintToController(Displ, 0, 2, 2);
+
+    PrintToController(accel, 0, 0, 3);
+    PrintToController(prevVel, 0, 1, 3);
   }
 
   return getVelocity ? currAcceleration : distTravelled;
@@ -1065,9 +1097,26 @@ void opcontrol() {
 
   // tunePID();
 
-  flywheelFWD = true;
+  std::array<double, 3> displacement = {0.0, 0.0, 0.0};
+
+  while (true) {
+    std::array<double, 3> velocity = calculateKinematics(true, true);
+    displacement[0] = calculateKinematics(false, false)[0] * 10000;
+
+    lcdControl();
+
+    PrintToController("Time: %d", globalTimer, 0, 1);
+    PrintToController("XDispl: %d", displacement.at(0) * 100, 1, 1);
+    PrintToController("XAccel: %d", Inertial.get_accel().x * 98.1, 2, 1);
+
+    globalTimer++;
+    delay(tickDeltaTime);
+  }
+
+  /*flywheelFWD = true;
 
   flywheelOn = false;
+
 
   // vector<double> currAcceleration;
 
@@ -1079,8 +1128,6 @@ void opcontrol() {
     // updateGlobalPosition(true);
     lcdControl();
 
-    std::array<double, 3> displacement = calculateKinematics(false, false);
-
 
     PrintToController("Time: %d", globalTimer, 0, 1);
     // PrintToController("XDispl: %d", displacement.at(0), 1, 1);
@@ -1088,5 +1135,5 @@ void opcontrol() {
 
     globalTimer++;
     delay(tickDeltaTime);
-  }
+  }*/
 }
