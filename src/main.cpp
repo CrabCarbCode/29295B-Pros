@@ -42,7 +42,7 @@ This is my code, and thus it is my god given right to use it as a diary. ignore 
 ///// Control Variables //////
 
 bool twoStickMode = true;  // toggles single or float stick drive
-int deadband = 5;          // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
+const int deadband = 5;    // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 
 const float autonDriveMult = 1.0;
 // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
@@ -139,24 +139,26 @@ void lcdControl() {
 
 #pragma region relativeTracking
 
-vector<double> prevVelocity;
+const float gAccel = 9.806;
 
-vector<double> calculateKinematics(bool isPrinting, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
+std::array<double, 3> prevVelocity;
+
+std::array<double, 3> calculateKinematics(bool isPrinting, bool getVelocity) {  // tracks displacement / acceleration / velocity relative to the robot
 
   pros::c::imu_accel_s_t InertialAccelReading = Inertial.get_accel();  // checking the inertial is costly, so we do it once and capture the result
-  vector<double> currAcceleration = {InertialAccelReading.x * 9.81, InertialAccelReading.y * 9.81, InertialAccelReading.z * 9.81};
+  std::array<double, 3> currAcceleration = {InertialAccelReading.x * gAccel, InertialAccelReading.y * gAccel, InertialAccelReading.z * gAccel};
 
-  vector<double> currVelocity;
-  vector<double> distTravelled;
+  std::array<double, 3> currVelocity(3, 0.0);
+  std::array<double, 3> distTravelled(3, 0.0);
 
   for (int i = 0; i < 3; i++) {  // tracks velocity / distance travelled over the current tick in all 3 axis
 
-    currVelocity[i] = 1;  //{currAcceleration[i] * tickDeltaTime + prevVelocity[i]};
-    // distTravelled[i] = 1;  //{(currAcceleration[i] * tickDeltaTime * 0.5) + (prevVelocity[i] * tickDeltaTime)};
+    currVelocity[i] = currAcceleration[i] * tickDeltaTime + prevVelocity[i];
+    distTravelled[i] = (currAcceleration[i] * tickDeltaTime * 0.5) + (prevVelocity[i] * tickDeltaTime);
+
+    prevVelocity[i] = currVelocity[i];  // caches the velocity of the current tick for use in the next tick
   }
 
-
-  prevVelocity = currVelocity;
   return getVelocity ? currAcceleration : distTravelled;
 }
 
@@ -166,14 +168,14 @@ vector<double> calculateKinematics(bool isPrinting, bool getVelocity) {  // trac
 
 #pragma region globalTracking
 
-vector<double> globalCoordinates;
-vector<double> globalVelocities;
-vector<double> totalDist;
+std::array<double, 3> globalCoordinates;
+std::array<double, 3> globalVelocities;
+std::array<double, 3> totalDist;  // temporary, curious to see what just tracking displacement does
 
 void updateGlobalPosition(bool isPrinting) {
   // capturing values of displacement and velocity over the last tick
-  vector<double> currDisplacements = calculateKinematics(isPrinting, false);
-  vector<double> currVelocities = calculateKinematics(isPrinting, true);
+  std::array<double, 3> currDisplacements = calculateKinematics(isPrinting, false);
+  std::array<double, 3> currVelocities = calculateKinematics(isPrinting, true);
 
 
   for (int i = 0; i < 3; i++) {  // tracks displacement across all axis, slow and prolly doesn't work
@@ -181,28 +183,45 @@ void updateGlobalPosition(bool isPrinting) {
   }
 
   // identify component of displacement change that should be added to each coordinate
-  float thetaHeading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
-  float thetaPitch = (Inertial.get_pitch() > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
-  float thetaYaw = (Inertial.get_yaw() > 180) ? (Inertial.get_yaw() - 360) : Inertial.get_yaw();
+  const float thetaHeading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
+  const float thetaPitch = (Inertial.get_pitch() > 180) ? (Inertial.get_pitch() - 360) : Inertial.get_pitch();
+  const float thetaYaw = (Inertial.get_yaw() > 180) ? (Inertial.get_yaw() - 360) : Inertial.get_yaw();
+
+  const float cosThetaHeading = cosf(thetaHeading);
+  const float sinThetaHeading = sinf(thetaHeading);
+
+  const float cosThetaPitch = cosf(thetaPitch);
+  const float sinThetaPitch = sinf(thetaPitch);
+
+  const float cosThetaYaw = cosf(thetaYaw);
+  const float sinThetaYaw = sinf(thetaYaw);
 
   // decomposing the displacement vectors calculated from the inertial, then reconstructing them into the change in coordinates
   // this math REALLY fucking sucks, but I'm not sure theres a better / more efficient way to do this than hardcoding.
-  globalCoordinates.at(0) += currDisplacements.at(0) * cosf(thetaHeading) * cosf(thetaPitch)  // x component of forward displacement
-                             + currDisplacements.at(1) * sinf(thetaHeading) * cosf(thetaYaw)  // x component of sideways displacement
-                             + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // x component of vertical displacement
+  globalCoordinates[0] += currDisplacements.at(0) * cosThetaHeading * cosThetaPitch  // x component of forward displacement
+                          + currDisplacements.at(1) * sinThetaHeading * cosThetaYaw  // x component of sideways displacement
+                          + currDisplacements.at(2) * sinThetaPitch * sinThetaYaw;   // x component of vertical displacement
 
-  globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaHeading) * cosf(thetaPitch)  // y component of forward displacement
-                          + currDisplacements.at(1) * cosf(thetaHeading) * cosf(thetaYaw)  // y component of sideways displacement
-                          + currDisplacements.at(2) * sinf(thetaPitch) * sinf(thetaYaw);   // y component of vertical displacement
+  globalCoordinates[1] += currDisplacements.at(0) * sinThetaHeading * cosThetaPitch  // y component of forward displacement
+                          + currDisplacements.at(1) * cosThetaHeading * cosThetaYaw  // y component of sideways displacement
+                          + currDisplacements.at(2) * sinThetaPitch * sinThetaYaw;   // y component of vertical displacement
 
-  globalCoordinates[0] += currDisplacements.at(0) * sinf(thetaPitch)                      // z component of forward displacement
-                          + currDisplacements.at(1) * sinf(thetaYaw)                      // z component of sideways displacement
-                          + currDisplacements.at(2) * cosf(thetaPitch) * cosf(thetaYaw);  // z component of vertical displacement
+  globalCoordinates[2] += currDisplacements.at(0) * sinThetaPitch                   // z component of forward displacement
+                          + currDisplacements.at(1) * sinThetaYaw                   // z component of sideways displacement
+                          + currDisplacements.at(2) * cosThetaPitch * cosThetaYaw;  // z component of vertical displacement
 
   if (isPrinting) {
-    PrintToController("X Coord: %d", globalCoordinates.at(0), 0, 2);  // print coordinates
-    PrintToController("Y Coord: %d", globalCoordinates.at(1), 1, 2);
-    PrintToController("Z Coord: %d", globalCoordinates.at(2), 2, 2);
+    std::string coordinates = "Coords: ";
+
+    for (int i = 0; i < 3; ++i) {
+      coordinates += std::to_string(globalCoordinates.at(i));
+
+      if (i < 2) {
+        coordinates += ", ";
+      }
+    }
+
+    PrintToController(coordinates, 0, 0, 2);  // print coordinates
 
 
     PrintToController("Fwd displ.: %d", currDisplacements.at(0), 0, 3);  // print displacement
@@ -430,7 +449,7 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
 
 #pragma region ActualCompetitionFunctions
 
-#pragma region AutonFunctions //Functions for autonomous control
+#pragma region AutonomousFunctions //Functions for autonomous control
 
 float previousErrorF = 0;  // previous error variable for the flystick arm
 
@@ -504,7 +523,7 @@ int selectedRoute = 3;
 
 int startingWheelPos;
 
-vector<int> ReadBopItOutputs() {
+std::array<int, 2> ReadBopItOutputs() {
   lcdControl();
 
   int armInput = (ArmRot.get_angle() / 10000);
@@ -1044,7 +1063,7 @@ void opcontrol() {
     // updateGlobalPosition(true);
     lcdControl();
 
-    vector<double> displacement = calculateKinematics(false, false);
+    std::array<double, 3> displacement = calculateKinematics(false, false);
 
 
     PrintToController("Time: %d", globalTimer, 0, 1);
