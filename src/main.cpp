@@ -382,6 +382,18 @@ bool isTuningTurns = false;
 
 void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
 
+  lP = 0.0;
+  lD = 0.0;
+  lI = 0.0;
+
+  lOutput = 1.0;
+
+  rP = 0.0;
+  rD = 0.0;
+  rI = 0.0;
+
+  rOutput = 1.0;
+
   desiredDist = 0 * degPerCM;
   desiredHeading = 0;
 
@@ -661,20 +673,21 @@ void ReadAutonStep() {
 
 #pragma region UserControlFunctions //handles all functions involving user input
 
-int rotationalAccelX = 0;
-int lateralAccelX = 0;
+int RAccelX = 0;
+int LAccelX = 0;
 
-bool driveReversed = false;
+bool isDriveReversed = false;
 int reverseDrive = 1;
 
 void DrivingControl(int8_t printingPage) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
-    driveReversed = !driveReversed;
-    LDrive.set_reversed(!driveReversed);
-    RDrive.set_reversed(driveReversed);
+    isDriveReversed = !isDriveReversed;
 
-    reverseDrive = (reverseDrive >= 0) ? -1 : 1;
+    FwdDrive.set_reversed(isDriveReversed);
+    RvsDrive.set_reversed(!isDriveReversed);
+
+    reverseDrive = (isDriveReversed) ? 1 : -1;
   }
 
   // taking the position of both controller sticks. Y is forward/back, X is left/right
@@ -685,23 +698,23 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 
   // increasing/decreasing the acceleratory variables whether the sticks are held down or not
 
-  static float fullAccelDelay = 0.25;
-  static float ptsPerTick = 100 / (fullAccelDelay * timerTickRate);
 
-  lateralAccelX += (abs(YStickPercent) > deadband) && (lateralAccelX <= 100) ? 2 * ptsPerTick : 2 * -ptsPerTick;  // Y(x) on graph
+  static float ptsPerTick = 4;
 
-  rotationalAccelX += (abs(XStickPercent) > deadband) && (rotationalAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
+  LAccelX += (abs(YStickPercent) > deadband) && (LAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
+
+  RAccelX += (abs(XStickPercent) > deadband) && (RAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
 
-  // applying the acceleratory curve to the stick inputs
+  // applying the acceleratory curve to the stick inputs, multiplies the stick values by the output of the accel smoothing function
 
-  int lateralOutput = AccelSmoothingFunc(YStickPercent, lateralAccelX);  // multiplies the stick values by the output of the accel smoothing function
-  int rotationalOutput = AccelSmoothingFunc(XStickPercent, rotationalAccelX);
+  int lateralOutput = (YStickPercent > 0) ? (LAccelX, YStickPercent / 100) : 0;
+  int rotationalOutput = (XStickPercent > 0) ? AccelSmoothingFunc(RAccelX, XStickPercent / 100) : 0;
 
   // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values.
   // Limits situations in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
   int maxOutExponent = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph abs(YStickPercent * XStickPercent) / pow(100, 2);
-  int maxOutputAdjust = (XStickPercent / abs(XStickPercent)) * powf(rotationalAccelX, maxOutExponent);
+  int maxOutputAdjust = (XStickPercent / abs(XStickPercent)) * powf(RAccelX, maxOutExponent);
 
 
   // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
@@ -723,13 +736,14 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   PrintToController("RDrive: %d", (10 * rightOutput), 2, printingPage);
 
 
-  PrintToController("YAccelX: %d", lateralAccelX, 0, printingPage + 1);
-  PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, lateralAccelX)), 1, printingPage + 1);
+  PrintToController("YAccelX: %d", LAccelX, 0, printingPage + 1);
+  PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, LAccelX)), 1, printingPage + 1);
   PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
 
 }  // graphed and simulated at https://www.desmos.com/calculator/11v6bhvklx, modelled in % power output by default
 
 
+#pragma region AuxiliaryStuff
 
 bool flywheelFWD = true;  // flywheel is inherently inverted so this reads as the opposite of what it does
 bool flywheelOn = false;
@@ -785,6 +799,8 @@ void WingsControl() {  // done
     WingPR.set_value(RWingLockedOut);
   }
 }
+
+#pragma endregion
 
 #pragma endregion  // end of UserControlFunctions
 
@@ -1053,13 +1069,13 @@ void opcontrol() {
 
   flywheelOn = false;
 
-  vector<double> currAcceleration;
+  // vector<double> currAcceleration;
 
   while (true) {
-    /*DrivingControl(1);
+    DrivingControl(1);
     WingsControl();
     FlystickControl(-1);
-    AdjustFlystick(true);*/
+    AdjustFlystick(true);
     // updateGlobalPosition(true);
     lcdControl();
 
