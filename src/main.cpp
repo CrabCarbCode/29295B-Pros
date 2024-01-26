@@ -105,7 +105,7 @@ float AccelSmoothingFunc(float stickVal, int xInput) {
   const float multiplier =
       (0.5 / (curveExtremity * sqrt(2 * Pi))) * powf(e, (-0.5 * pow(((minAmount * x - minAmount * peakPos) / curveExtremity), 2)));
   return xInput >= (100) ? (multiplier * stickVal) : stickVal;
-}  // function graphed here: https://www.desmos.com/calculator/rngq1awu9a
+}  // function graphed here: [https://www.desmos.com/calculator/y0fwlh6j47]
 
 
 void PrintToController(std::string prefix, float data, int row, int page) {
@@ -365,7 +365,7 @@ bool AutonPID() {
 //                                                 PID TUNING INSTRUCTIONS:                                            //
 //   1. call the tunePID function in opcontrol()                                                                       //
 //   2. confirm that the P/I/D tuning variables in the "PIDVariables" region are set to 0.0, with the outputs at 1.0   //
-//   3. follow the control layout found here: [link]                                                                   //
+//   3. follow the control layout found here: [http://tinyurl.com/3zrb6zj5]                                                                   //
 //   4. increase the lP/rP coefficient(s) until the desired motion is completed with oscilations                       //
 //   5. increase the lD/rD coefficient(s) until the oscilations dampen out over time                                   //
 //   6. increase the lI/rI coefficient(s) until the motion is completed aggressively without oscilations               //
@@ -740,7 +740,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
   PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, LAccelX)), 1, printingPage + 1);
   PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
 
-}  // graphed and simulated at https://www.desmos.com/calculator/11v6bhvklx, modelled in % power output by default
+}  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default
 
 
 #pragma region AuxiliaryStuff
