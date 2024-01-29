@@ -60,7 +60,7 @@ const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
 
 const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
-int maxFlywheelSpeed = 39;  // flywheel speed as a percent
+int maxFlywheelSpeed = 80;  // flywheel speed as a percent
 int flystickArmPos = 0;     // flystick starts at kickstand position
 
 int lastUpTimestamp = 0;
@@ -86,27 +86,43 @@ const char *toChar(std::string string) { return string.c_str(); }
 
 int toInt(float val) { return val; }
 
+
 int timeSincePoint(int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1;  // returns -1 if checkedtime is in the future
 }
 
-static bool IsWithinRange(float num, float lowerBound, float upperBound) { return num >= lowerBound && num <= upperBound; }
+
+const bool IsWithinRange(float num, float lowerBound, float upperBound) { return num >= lowerBound && num <= upperBound; }
+
+
+// variables which control the shape/range of the acceleratory function
+float ACurveExtremity = 0.19948;  // sigma
+float peakPos = 1;                // mu
+float AMinAmount = 0.235;         // kappa
 
 // i have no idea what im doing
-float AccelSmoothingFunc(float stickVal, int xInput) {
+float AccelSmoothingFunc(int time) {
   // takes a stick input and acceleration percent and returns a corresponding value from a smooth curve
 
-  // variables which control the shape/range of the funct
-  float curveExtremity = 0.19948;  // sigma
-  float peakPos = 1;               // mu
-  float minAmount = 0.235;         // kappa
 
-  float x = xInput / 100;  // converting the input from percentage to a decimal btween 0-1
+  float x = time / 100;  // converting the input from percentage to a decimal btween 0-1
 
   const float multiplier =
-      (0.5 / (curveExtremity * sqrt(2 * Pi))) * powf(e, (-0.5 * pow(((minAmount * x - minAmount * peakPos) / curveExtremity), 2)));
-  return xInput >= (100) ? (multiplier * stickVal) : stickVal;
+      (0.5 / (ACurveExtremity * sqrt(2 * Pi))) * powf(e, (-0.5 * pow(((AMinAmount * x - AMinAmount * peakPos) / ACurveExtremity), 2)));
+  return time >= (100) ? multiplier : 1;
 }  // function graphed here: [https://www.desmos.com/calculator/y0fwlh6j47]
+
+
+float linearHarshness = 0.2;  // g on graph
+float SCurveExtremity = 4.7;  // h on graph
+
+// i now have some idea what im doing
+float StickSmoothingFunc(float stickVal) {
+  float curveExponent = (abs(stickVal) - 100) / (10 * ACurveExtremity);
+  float linearExponent = (-1 / (10 * linearHarshness));
+
+  return (stickVal * (powf(e, linearExponent) + ((1 - powf(e, linearExponent)) * powf(e, curveExponent))));
+}  // function graphed here: [https://www.desmos.com/calculator/ti4hn57sa7]
 
 
 void PrintToController(std::string prefix, float data, int row, int page) {
@@ -118,6 +134,7 @@ void PrintToController(std::string prefix, float data, int row, int page) {
     MainControl.print(row, 0, prefix.c_str(), toInt(data));
   }
 }
+
 
 void lcdControl() {
   if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
@@ -389,101 +406,6 @@ bool AutonPID() {
   return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 1.5) ? true : false;  // return true if done movement
 }
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-#pragma region debugFunctions
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////                                                                                                                 ////
-//                                                 PID TUNING INSTRUCTIONS:                                            //
-//   1. call the tunePID function in opcontrol()                                                                       //
-//   2. confirm that the P/I/D tuning variables in the "PIDVariables" region are set to 0.0, with the outputs at 1.0   //
-//   3. follow the control layout found here: [http://tinyurl.com/3zrb6zj5]                                                                   //
-//   4. increase the lP/rP coefficient(s) until the desired motion is completed with oscilations                       //
-//   5. increase the lD/rD coefficient(s) until the oscilations dampen out over time                                   //
-//   6. increase the lI/rI coefficient(s) until the motion is completed aggressively without oscilations               //
-//      (somewhat optional, as not all applications benefit from an integral controller)                               //
-//   7. increase the output coefficient(s) until the motion is completed with acceptable speed and precision           //
-//                                                                                                                     //
-//      as builds and use cases vary, you may need to fiddle with the values after initial tuning after more testing.   //
-//      generally the P & D components should be larger than the I, and values should be between 0.0 and 5.0.          //
-////                                                                                                                 ////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-float adjustFactor = 0.1;  // the increment by which PID variables change during manual tuning
-bool isTuningTurns = false;
-
-void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
-
-  lP = 0.0;
-  lD = 0.0;
-  lI = 0.0;
-
-  lOutput = 1.0;
-
-  rP = 0.0;
-  rD = 0.0;
-  rI = 0.0;
-
-  rOutput = 1.0;
-
-  desiredDist = 0 * degPerCM;
-  desiredHeading = 0;
-
-  while (true) {
-    lcdControl();
-
-    if (MainControl.get_digital_new_press(DIGITAL_B)) {  // changes proportional coefficient
-      rP += isTuningTurns ? adjustFactor : 0;
-      lP += isTuningTurns ? 0 : adjustFactor;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_A)) {  // changes integral coefficient
-      rI += isTuningTurns ? adjustFactor : 0;
-      lI += isTuningTurns ? 0 : adjustFactor;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // changes derivative coefficient
-      rD += isTuningTurns ? adjustFactor : 0;
-      lD += isTuningTurns ? 0 : adjustFactor;
-    }
-
-
-    if (MainControl.get_digital_new_press(DIGITAL_X)) {  // toggles increases/decreases to tuning variables
-      adjustFactor *= -1;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_UP)) {  // toggles between testing rotational / lateral drive
-      isTuningTurns = !isTuningTurns;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_R1)) {  // changes output power of lateral PID
-      lOutput += adjustFactor;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_L1)) {  // changes output power of rotational PID
-      rOutput += adjustFactor;
-    }
-
-
-    PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 0, 2);
-    PrintToController("IVar: %d", (isTuningTurns ? rI : lI) * 10, 1, 2);
-    PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 2, 2);
-
-    PrintToController("Turning?: %d", isTuningTurns, 0, 3);
-    PrintToController("lOutput: %d", lOutput, 1, 3);
-    PrintToController("rOutput: %d", rOutput, 2, 3);
-
-    AutonPID();
-
-    if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {  // flips 180 or drives 1m in alternating directions at regular intervals
-      desiredDist = isTuningTurns ? 0 : 50 * degPerCM;
-      desiredHeading = isTuningTurns ? 90 : 0;
-    } else {
-      desiredDist = isTuningTurns ? 0 : -50 * degPerCM;
-      desiredHeading = isTuningTurns ? -90 : 0;
-    }
-
-    globalTimer++;
-    delay(tickDeltaTime);
-  }
-}
-
-#pragma endregion
 
 #pragma endregion  // end of PID block
 
@@ -499,7 +421,7 @@ float previousErrorF = 0;  // previous error variable for the flystick arm
 
 bool allowAdjust = false;
 
-void AdjustFlystick(bool move) {
+void AdjustFlystick(bool isPrinting, bool move) {
   float fP = 0.6;
   float fD = 0.8;
   float fO = 1.5;
@@ -523,15 +445,12 @@ void AdjustFlystick(bool move) {
       break;
     case 1:
       desiredRotation = 130;
-      maxFlywheelSpeed = 90;
       break;
     case 2:
       desiredRotation = 160;
-      maxFlywheelSpeed = 45;
       break;
     case 3:
       desiredRotation = 215;
-      maxFlywheelSpeed = 70;
       break;
     case 4:
       desiredRotation = 265;
@@ -705,13 +624,13 @@ void ReadAutonStep() {
 
 #pragma region UserControlFunctions //handles all functions involving user input
 
-int RAccelX = 0;
-int LAccelX = 0;
+int RAccelTime = 0;
+int LAccelTime = 0;
 
 bool isDriveReversed = false;
 int reverseDrive = 1;
 
-void DrivingControl(int8_t printingPage) {  // resoponsible for user control of the drivetrain
+void DrivingControl(bool isPrinting) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
     isDriveReversed = !isDriveReversed;
@@ -722,57 +641,51 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
     reverseDrive = (isDriveReversed) ? 1 : -1;
   }
 
-  // taking the position of both controller sticks. Y is forward/back, X is left/right
+  // taking the position of the sticks and appplying gradient diffusion to them. Check the StickSmoothingFunc graph for details
+  // X stick covers fwd/back, Y stick covers turning
 
-  float YStickPercent = MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27;                    // w on graph
-  float XStickPercent = (MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27 * reverseDrive);  // s on graph
-
-
-  // increasing/decreasing the acceleratory variables whether the sticks are held down or not
+  float XStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27);                  // w on graph
+  float YStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27 * reverseDrive);  // s on graph
 
 
-  static float ptsPerTick = 4;
+  // filter out stick drift / nonpressed sticks. saves resources by skipping calculations when not driving
+  if ((abs(XStickPercent) + abs(YStickPercent)) >= deadband) {
+    // increasing/decreasing the acceleratory variables whether the sticks are held down or not
 
-  LAccelX += (abs(YStickPercent) > deadband) && (LAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
-
-  RAccelX += (abs(XStickPercent) > deadband) && (RAccelX <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
-
-
-  // applying the acceleratory curve to the stick inputs, multiplies the stick values by the output of the accel smoothing function
-
-  int lateralOutput = (YStickPercent > 0) ? (LAccelX, YStickPercent / 100) : 0;
-  int rotationalOutput = (XStickPercent > 0) ? AccelSmoothingFunc(RAccelX, XStickPercent / 100) : 0;
-
-  // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values.
-  // Limits situations in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-  int maxOutExponent = abs(YStickPercent * XStickPercent) / pow(100, 2);  // d on graph abs(YStickPercent * XStickPercent) / pow(100, 2);
-  int maxOutputAdjust = (XStickPercent / abs(XStickPercent)) * powf(RAccelX, maxOutExponent);
+    static float ptsPerTick = 4;
+    LAccelTime += (LAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
+    RAccelTime += (RAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
 
-  // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving if applicable
+    // applying the acceleratory curve to the stick inputs, multiplies the stick values by the output of the accel smoothing function
 
-  int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
-  int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
+    int lateralOutput = AccelSmoothingFunc(LAccelTime) * XStickPercent;
+    int rotationalOutput = AccelSmoothingFunc(RAccelTime) * YStickPercent;
 
-  if ((abs(YStickPercent) + abs(XStickPercent)) >= deadband) {
+
+    // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values. Limits situations
+    // in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
+    int maxOutExponent = abs(XStickPercent * YStickPercent) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
+    int maxOutputAdjust = (YStickPercent / abs(YStickPercent)) * powf(RAccelTime, maxOutExponent);
+
+
+    // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving
+
+    int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
+    int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
+
     LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
     RDrive.move_velocity(6 * rightOutput);
-  } else {
+
+  } else {  // if not want move, dont move
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
   }
 
+  if (isPrinting) {
+  }
 
-  // diagnostic printing
-  PrintToController("LDrive: %d", (10 * leftOutput), 1, printingPage);
-  PrintToController("RDrive: %d", (10 * rightOutput), 2, printingPage);
-
-
-  PrintToController("YAccelX: %d", LAccelX, 0, printingPage + 1);
-  PrintToController("YMult: %d", (100 * AccelSmoothingFunc(1, LAccelX)), 1, printingPage + 1);
-  PrintToController("YOut %d", lateralOutput, 2, printingPage + 1);
-
-}  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default
+}  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default. Graph may be outdated
 
 
 #pragma region AuxiliaryStuff
@@ -780,7 +693,7 @@ void DrivingControl(int8_t printingPage) {  // resoponsible for user control of 
 bool flywheelFWD = true;  // flywheel is inherently inverted so this reads as the opposite of what it does
 bool flywheelOn = false;
 
-void FlystickControl(int8_t printingPage) {  // done
+void FlystickControl(bool isPrinting) {  // done
   // responsible for selecting the elevation of the flystick
 
   int cooldown = 3;
@@ -805,7 +718,7 @@ void FlystickControl(int8_t printingPage) {  // done
       FlywheelM.move_velocity(0);
       break;
     case 1:
-      FlywheelM.move_velocity(maxFlywheelSpeed * 6);
+      FlywheelM.move_velocity(maxFlywheelSpeed * 2);
       break;
   }
 
@@ -837,6 +750,162 @@ void WingsControl() {  // done
 #pragma endregion  // end of UserControlFunctions
 
 #pragma endregion  // end of Bot controlling functions
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
+#pragma region debugFunctions
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////                                                                                                                 ////
+//                                                 PID TUNING INSTRUCTIONS:                                            //
+//   1. call the tunePID function in opcontrol()                                                                       //
+//   2. confirm that the P/I/D tuning variables in the "PIDVariables" region are set to 0.0, with the outputs at 1.0   //
+//   3. follow the control layout found here: [http://tinyurl.com/3zrb6zj5]                                                                   //
+//   4. increase the lP/rP coefficient(s) until the desired motion is completed with oscilations                       //
+//   5. increase the lD/rD coefficient(s) until the oscilations dampen out over time                                   //
+//   6. increase the lI/rI coefficient(s) until the motion is completed aggressively without oscilations               //
+//      (somewhat optional, as not all applications benefit from an integral controller)                               //
+//   7. increase the output coefficient(s) until the motion is completed with acceptable speed and precision           //
+//                                                                                                                     //
+//      as builds and use cases vary, you may need to fiddle with the values after initial tuning after more testing.   //
+//      generally the P & D components should be larger than the I, and values should be between 0.0 and 5.0.          //
+////                                                                                                                 ////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+float adjustFactor = 0.1;  // the increment by which PID variables change during manual tuning
+bool isTuningTurns = false;
+
+void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
+
+  lP = 0.0;
+  lD = 0.0;
+  lI = 0.0;
+
+  lOutput = 1.0;
+
+  rP = 0.0;
+  rD = 0.0;
+  rI = 0.0;
+
+  rOutput = 1.0;
+
+  desiredDist = 0 * degPerCM;
+  desiredHeading = 0;
+
+  while (true) {
+    lcdControl();
+
+    if (MainControl.get_digital_new_press(DIGITAL_B)) {  // changes proportional coefficient
+      rP += isTuningTurns ? adjustFactor : 0;
+      lP += isTuningTurns ? 0 : adjustFactor;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_A)) {  // changes integral coefficient
+      rI += isTuningTurns ? adjustFactor : 0;
+      lI += isTuningTurns ? 0 : adjustFactor;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // changes derivative coefficient
+      rD += isTuningTurns ? adjustFactor : 0;
+      lD += isTuningTurns ? 0 : adjustFactor;
+    }
+
+
+    if (MainControl.get_digital_new_press(DIGITAL_X)) {  // toggles increases/decreases to tuning variables
+      adjustFactor *= -1;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_UP)) {  // toggles between testing rotational / lateral drive
+      isTuningTurns = !isTuningTurns;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_R1)) {  // changes output power of lateral PID
+      lOutput += adjustFactor;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_L1)) {  // changes output power of rotational PID
+      rOutput += adjustFactor;
+    }
+
+
+    PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 0, 2);
+    PrintToController("IVar: %d", (isTuningTurns ? rI : lI) * 10, 1, 2);
+    PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 2, 2);
+
+    PrintToController("Turning?: %d", isTuningTurns, 0, 3);
+    PrintToController("lOutput: %d", lOutput, 1, 3);
+    PrintToController("rOutput: %d", rOutput, 2, 3);
+
+    AutonPID();
+
+    if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {  // flips 180 or drives 1m in alternating directions at regular intervals
+      desiredDist = isTuningTurns ? 0 : 50 * degPerCM;
+      desiredHeading = isTuningTurns ? 90 : 0;
+    } else {
+      desiredDist = isTuningTurns ? 0 : -50 * degPerCM;
+      desiredHeading = isTuningTurns ? -90 : 0;
+    }
+
+    globalTimer++;
+    delay(tickDeltaTime);
+  }
+}
+
+
+
+void tuneDrive() {  // allows for user driving, with real time control over drive coefficients
+  // default settings for acceleratory / stick curves
+
+  ACurveExtremity = 0.19948;  // sigma
+  AMinAmount = 0.235;         // kappa
+
+  linearHarshness = 0.2;  // g on graph
+  SCurveExtremity = 4.7;  // h on graph
+
+  float adjustFactor = 1;
+
+  while (true) {
+    if (MainControl.get_digital_new_press(DIGITAL_X)) {
+      ACurveExtremity += adjustFactor / 100000;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_A)) {
+      AMinAmount += adjustFactor / 1000;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_B)) {
+      linearHarshness += adjustFactor / 20;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_Y)) {
+      SCurveExtremity += adjustFactor / 10;
+    }
+
+    if (MainControl.get_digital_new_press(DIGITAL_UP)) {
+      adjustFactor++;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_DOWN)) {
+      adjustFactor--;
+    }
+    if (MainControl.get_digital_new_press(DIGITAL_L1)) {
+      adjustFactor *= -1;
+    }
+
+    DrivingControl(false);
+
+#pragma region Diagnostics
+
+    std::string kappa = "ACurveHarsh: " + std::to_string(static_cast<int>(ACurveExtremity * 100000) / 100000);
+    std::string sigma = "ACurveMin: " + std::to_string(static_cast<int>(AMinAmount * 1000) / 1000);
+    std::string gVal = "SCurveLinear: " + std::to_string(static_cast<int>(linearHarshness * 10) / 10);
+    std::string hVal = "SCurveExp.: " + std::to_string(static_cast<int>(SCurveExtremity * 10) / 10);
+
+    PrintToController(kappa, 0, 0, 1);
+    PrintToController(sigma, 0, 1, 1);
+    PrintToController(gVal + hVal, 0, 2, 1);
+
+#pragma endregion
+
+    globalTimer++;
+    delay(tickDeltaTime);
+  }
+}
+
+#pragma endregion
 
 
 // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
@@ -1030,7 +1099,7 @@ void autonomous() {
     lcdControl();  // allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
     FlywheelM.move_velocity(flywheelSpeed * 2);  // spins the flywheel at the desired speed (input as a percent)
     if ((ArmRot.get_angle() / 100) < 306) {
-      AdjustFlystick(true);
+      AdjustFlystick(false, true);
     }  // manages the height of the flystick arm
 
     float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
@@ -1096,8 +1165,9 @@ void opcontrol() {
   //  autonomous();
 
   // tunePID();
+  // tuneDrive();
 
-  std::array<double, 3> displacement = {0.0, 0.0, 0.0};
+  /*std::array<double, 3> displacement = {0.0, 0.0, 0.0};
 
   while (true) {
     std::array<double, 3> velocity = calculateKinematics(true, true);
@@ -1111,20 +1181,17 @@ void opcontrol() {
 
     globalTimer++;
     delay(tickDeltaTime);
-  }
+  }*/
 
-  /*flywheelFWD = true;
+  flywheelFWD = true;
 
   flywheelOn = false;
 
-
-  // vector<double> currAcceleration;
-
   while (true) {
-    DrivingControl(1);
+    DrivingControl(false);
     WingsControl();
-    FlystickControl(-1);
-    AdjustFlystick(true);
+    FlystickControl(false);
+    AdjustFlystick(false, true);
     // updateGlobalPosition(true);
     lcdControl();
 
@@ -1135,5 +1202,5 @@ void opcontrol() {
 
     globalTimer++;
     delay(tickDeltaTime);
-  }*/
+  }
 }
