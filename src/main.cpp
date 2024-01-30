@@ -135,6 +135,22 @@ void PrintToController(std::string prefix, float data, int row, int page) {
   }
 }
 
+/*void PrintToController(std::string prefix, float data[], int row, int page) {
+  if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
+    MainControl.clear();
+  }
+
+  std::string output = prefix;
+
+  for (int i = 0; i < data.size(); ++i) {
+    output += std::to_string(static_cast<int>(data[i] * 100) / 100);
+  }
+
+  if (tabVar == page && (globalTimer % 9 == (row * 3))) {
+    MainControl.print(row, 0, prefix.c_str(), toInt(data));
+  }
+}*/
+
 
 void lcdControl() {
   if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
@@ -422,9 +438,9 @@ float previousErrorF = 0;  // previous error variable for the flystick arm
 bool allowAdjust = false;
 
 void AdjustFlystick(bool isPrinting, bool move) {
-  float fP = 0.6;
+  float fP = 0.7;
   float fD = 0.8;
-  float fO = 1.5;
+  float fO = 1.7;
 
   int deadzoneF = 0.3;
 
@@ -633,18 +649,13 @@ int reverseDrive = 1;
 void DrivingControl(bool isPrinting) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
-    isDriveReversed = !isDriveReversed;
-
-    FwdDrive.set_reversed(isDriveReversed);
-    RvsDrive.set_reversed(!isDriveReversed);
-
-    reverseDrive = (isDriveReversed) ? 1 : -1;
+    reverseDrive = (reverseDrive > 0) ? 1 : -1;
   }
 
   // taking the position of the sticks and appplying gradient diffusion to them. Check the StickSmoothingFunc graph for details
   // X stick covers fwd/back, Y stick covers turning
 
-  float XStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27);                  // w on graph
+  float XStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27 * reverseDrive);   // w on graph
   float YStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27 * reverseDrive);  // s on graph
 
 
@@ -665,7 +676,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
     // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values. Limits situations
     // in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-    int maxOutExponent = abs(XStickPercent * YStickPercent) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
+    int maxOutExponent = abs(XStickPercent * powf(YStickPercent, 1.1)) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
     int maxOutputAdjust = (YStickPercent / abs(YStickPercent)) * powf(RAccelTime, maxOutExponent);
 
 
@@ -677,14 +688,15 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
     RDrive.move_velocity(6 * rightOutput);
 
+    if (isPrinting) {
+      PrintToController("LDrive: %d", 6 * leftOutput, 1, 1);
+      PrintToController("RDrive: %d", 6 * rightOutput, 2, 1);
+    }
+
   } else {  // if not want move, dont move
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
   }
-
-  if (isPrinting) {
-  }
-
 }  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default. Graph may be outdated
 
 
@@ -762,14 +774,14 @@ void WingsControl() {  // done
 //                                                 PID TUNING INSTRUCTIONS:                                            //
 //   1. call the tunePID function in opcontrol()                                                                       //
 //   2. confirm that the P/I/D tuning variables in the "PIDVariables" region are set to 0.0, with the outputs at 1.0   //
-//   3. follow the control layout found here: [http://tinyurl.com/3zrb6zj5]                                                                   //
+//   3. follow the control layout found here: [http://tinyurl.com/3zrb6zj5]                                            //
 //   4. increase the lP/rP coefficient(s) until the desired motion is completed with oscilations                       //
 //   5. increase the lD/rD coefficient(s) until the oscilations dampen out over time                                   //
 //   6. increase the lI/rI coefficient(s) until the motion is completed aggressively without oscilations               //
 //      (somewhat optional, as not all applications benefit from an integral controller)                               //
 //   7. increase the output coefficient(s) until the motion is completed with acceptable speed and precision           //
 //                                                                                                                     //
-//      as builds and use cases vary, you may need to fiddle with the values after initial tuning after more testing.   //
+//      as builds and use cases vary, you may need to fiddle with the values after initial tuning after more testing.  //
 //      generally the P & D components should be larger than the I, and values should be between 0.0 and 5.0.          //
 ////                                                                                                                 ////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1188,7 +1200,7 @@ void opcontrol() {
   flywheelOn = false;
 
   while (true) {
-    DrivingControl(false);
+    DrivingControl(true);
     WingsControl();
     FlystickControl(false);
     AdjustFlystick(false, true);

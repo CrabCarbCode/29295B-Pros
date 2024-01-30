@@ -20,7 +20,7 @@ Motor FlystickArmM(18, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES);
 
 Motor FlywheelM(14, E_MOTOR_GEARSET_18, false, E_MOTOR_ENCODER_DEGREES);
 
-ADIDigitalOut WingPR('G');
+ADIDigitalOut WingPR('A');
 ADIDigitalOut WingPL('H');
 
 Imu Inertial(17);  // initializing the Inertial sensor
