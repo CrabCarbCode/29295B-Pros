@@ -41,6 +41,7 @@ This is my code, and thus it is my god given right to use it as a diary. ignore 
 
 ///// Control Variables //////
 
+
 bool twoStickMode = true;  // toggles single or float stick drive
 const int deadband = 5;    // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 
@@ -60,7 +61,7 @@ const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
 
 const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
-int maxFlywheelSpeed = 80;  // flywheel speed as a percent
+int maxFlywheelSpeed = 90;  // flywheel speed as a percent
 int flystickArmPos = 0;     // flystick starts at kickstand position
 
 int lastUpTimestamp = 0;
@@ -71,7 +72,7 @@ float defaultArmPos;
 
 int maxflystickArmPos = 5;
 
-int tabVar = 1;
+int currentPage = 1;
 
 #pragma endregion
 
@@ -101,11 +102,8 @@ float peakPos = 1;                // mu
 float AMinAmount = 0.235;         // kappa
 
 // i have no idea what im doing
-float AccelSmoothingFunc(int time) {
-  // takes a stick input and acceleration percent and returns a corresponding value from a smooth curve
-
-
-  float x = time / 100;  // converting the input from percentage to a decimal btween 0-1
+float AccelSmoothingFunc(int time) {  // returns a multiplier 0 to 1 based on time
+  float x = time / 100;               // converting the input from percentage to a decimal btween 0-1
 
   const float multiplier =
       (0.5 / (ACurveExtremity * sqrt(2 * Pi))) * powf(e, (-0.5 * pow(((AMinAmount * x - AMinAmount * peakPos) / ACurveExtremity), 2)));
@@ -125,41 +123,83 @@ float StickSmoothingFunc(float stickVal) {
 }  // function graphed here: [https://www.desmos.com/calculator/ti4hn57sa7]
 
 
-void PrintToController(std::string prefix, float data, int row, int page) {
-  if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
-    MainControl.clear();
-  }
 
-  if (tabVar == page && (globalTimer % 9 == (row * 3))) {
-    MainControl.print(row, 0, prefix.c_str(), toInt(data));
-  }
-}
+#pragma endregion
 
-/*void PrintToController(std::string prefix, float data[], int row, int page) {
-  if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
-    MainControl.clear();
-  }
 
-  std::string output = prefix;
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
-  for (int i = 0; i < data.size(); ++i) {
-    output += std::to_string(static_cast<int>(data[i] * 100) / 100);
-  }
 
-  if (tabVar == page && (globalTimer % 9 == (row * 3))) {
-    MainControl.print(row, 0, prefix.c_str(), toInt(data));
-  }
-}*/
+#pragma region printingChicanery
 
 
 void lcdControl() {
   if (MainControl.get_digital_new_press(DIGITAL_LEFT)) {
-    tabVar--;
+    currentPage--;
   }
   if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
-    tabVar++;
+    currentPage++;
   }
 }
+
+
+bool isPrintingList[9] = {false, false, false, false, false, false, false, false, false};  // tracks which functions are trying to print
+const int pagesPerPrint[9] = {1, 1, 1, 2, 2, 1, 2, 1, 2};  // hardcoded list containing the number of pages required for each function
+/**
+ * [index] [function] - [num of allocated pages]
+ * [0] Rand Diagnostics - 1  //should not be used in final polished builds
+ * [1] AutoSel - 1
+ * [2] AutRoute - 1
+ * [3] PID - 2
+ * [4] Drivetrain - 2
+ * [5] GPS - 1
+ * [6] Kinematics - 2
+ * [7] Drive Tune - 1
+ * [8] PID Tune - 2
+ **/
+
+int pageRangeFinder(int index) {
+  int startingPage;
+
+  for (int j = 0; j <= index; ++j) {
+    startingPage += isPrintingList[j] ? pagesPerPrint[j] : 0;
+  }
+
+  return startingPage;
+}
+
+
+void PrintToController(std::string prefix, double data, int numOfDigits, int row, int page) {  // handles single numbers
+  if (currentPage == page && (globalTimer % 9 == (row * 3))) {
+    if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
+      MainControl.clear();
+    }
+
+    std::string output = prefix + std::to_string(data).substr(0, numOfDigits);  // takes the first n digits of the number, adds it to output as string
+
+    MainControl.print(row, 0, output.c_str(), 0);
+  }
+}
+
+
+template <typename T, size_t N>
+void PrintToController(std::string prefix, const std::array<T, N> &data, int numOfDigits, int row, int page) {  // handles multiple numbers
+  if (currentPage == page && (globalTimer % 9 == (row * 3))) {
+    if (globalTimer % 11 == 0) {  // refresh the screen every 11 ticks because 11 is a good number :)
+      MainControl.clear();
+    }
+
+    std::string output = prefix;
+
+    for (size_t j = 0; j < N; ++j) {
+      double currNum = data[j];
+      output += (j < N - 1) ? std::to_string(currNum).substr(0, numOfDigits) + ", " : std::to_string(currNum).substr(0, numOfDigits);
+    }
+
+    MainControl.print(row, 0, output.c_str(), 0);
+  }
+}
+
 
 #pragma endregion
 
@@ -196,36 +236,23 @@ std::array<double, 3> calculateKinematics(bool isPrinting, bool getVelocity) {  
   }
 
   if (isPrinting) {
-    std::string accel = "Accel: ";
-    std::string prevVel = "PrevVel: ";
-    std::string currVel = "CurrVel: ";
-    std::string Displ = "Displ: ";
+    if (!isPrintingList[6]) {  // [6] Kinematics - 2
+      isPrintingList[6] = true;
+    }
 
-    for (int i = 0; i < 3; ++i) {
-      accel += std::to_string(static_cast<int>(currAcceleration[i] * 100) / 100);
-      prevVel += std::to_string(static_cast<int>(prevVelocity[i] * 100) / 100);
-      currVel += std::to_string(static_cast<int>(currVelocity[i] * 100) / 100);
-      Displ += std::to_string(static_cast<int>(Displ[i] * 100) / 100);
+    int startingPage = pageRangeFinder(6);
 
+    PrintToController("Time: ", globalTimer, 5, 0, startingPage);
+    PrintToController("Accel: ", currAcceleration, 3, 1, startingPage);
+    PrintToController("cVel: ", currVelocity, 3, 2, startingPage);
 
-      if (i < 2) {
-        accel += ", ";
-        prevVel += ", ";
-        currVel += ", ";
-        Displ += ", ";
-      }
-    }  // blow up robot
-
-    PrintToController("Timer: %d", globalTimer, 0, 2);
-    PrintToController(currVel, 0, 1, 2);
-    PrintToController(Displ, 0, 2, 2);
-
-    PrintToController(accel, 0, 0, 3);
-    PrintToController(prevVel, 0, 1, 3);
+    PrintToController("pVel: ", prevVelocity, 3, 1, startingPage + 1);
+    PrintToController("Displ: ", distTravelled, 3, 2, startingPage + 1);
   }
 
   return getVelocity ? currAcceleration : distTravelled;
 }
+
 
 #pragma endregion
 
@@ -276,26 +303,19 @@ void updateGlobalPosition(bool isPrinting) {
                           + currDisplacements.at(2) * cosThetaPitch * cosThetaYaw;  // z component of vertical displacement
 
   if (isPrinting) {
-    std::string coordinates = "Coords: ";
-
-    for (int i = 0; i < 3; ++i) {
-      coordinates += std::to_string(globalCoordinates.at(i));
-
-      if (i < 2) {
-        coordinates += ", ";
-      }
+    if (!isPrintingList[5]) {  // [5] GPS - 1
+      isPrintingList[5] = true;
     }
 
-    PrintToController(coordinates, 0, 0, 2);  // print coordinates
+    int startingPage = pageRangeFinder(5);
 
+    PrintToController("Time: ", globalTimer, 3, 0, startingPage);
+    PrintToController("Displ: ", currDisplacements, 3, 1, startingPage);
+    PrintToController("Coords: ", globalCoordinates, 3, 2, startingPage);
 
-    PrintToController("Fwd displ.: %d", currDisplacements.at(0), 0, 3);  // print displacement
-    PrintToController("Side displ.: %d", currDisplacements.at(1), 1, 3);
-    PrintToController("Vert. displ.: %d", currDisplacements.at(2), 2, 3);
-
-    PrintToController("Heading: %d", thetaHeading, 0, 4);  // print angles
-    PrintToController("Pitch: %d", thetaPitch, 1, 4);
-    PrintToController("Yaw: %d", thetaYaw, 2, 4);
+    PrintToController("Heading: %d", thetaHeading, 4, 0, 4);  // print angles
+    PrintToController("Pitch: %d", thetaPitch, 1, 4, 4);
+    PrintToController("Yaw: %d", thetaYaw, 2, 4, 4);
   }
 }
 
@@ -341,19 +361,19 @@ int integralBoundR = 5;
 
 // Storage variables for Lateral (forward/back) PID
 
-float errorProportionalL;  // reported value - desired value = position
+float proportionalErrorL;  // reported value - desired value = position
 float previousErrorL = 0;  // position from last loop
-float errorDerivativeL;    //(error - prevError)
-float errorIntegralL;
+float derivativeErrorL;    //(error - prevError)
+float integralErrorL;
 
 float lateralPower = 0;
 
 // Storage variables for Rotational (turning) PID
 
-float errorProportionalR;  // reported value - desired value = position
+float proportionalErrorR;  // reported value - desired value = position
 float previousErrorR = 0;  // position from last loop
-float errorDerivativeR;    //(error - prevError)
-float errorIntegralR;
+float derivativeErrorR;    //(error - prevError)
+float integralErrorR;
 
 float rotationalPower = 0;
 
@@ -367,8 +387,8 @@ float rotationalPower = 0;
 int stuckTimeStamp = 0;
 int avgMotorPosition = 0;
 
-bool AutonPID() {
-  if (autonPIDIsEnabled) {
+bool AutonPID(bool isPrinting) {
+  if (autonPIDIsEnabled) {  // toggle so the PID can be disabled while placed on a separate thread
     // sets heading from -180 < h < 180, meaning we turn the correct direction from error
     float heading = (Inertial.get_heading() > 180) ? (Inertial.get_heading() - 360) : Inertial.get_heading();
 
@@ -378,35 +398,35 @@ bool AutonPID() {
 
     avgMotorPosition = ((RDriveFrontM.get_position()) + (LDriveFrontM.get_position())) / 2;
 
-    errorProportionalL = lP * (desiredDist - avgMotorPosition);     // proportional error
-    errorDerivativeL = lD * (errorProportionalL - previousErrorL);  // derivative of error
+    proportionalErrorL = lP * (desiredDist - avgMotorPosition);     // proportional error
+    derivativeErrorL = lD * (proportionalErrorL - previousErrorL);  // derivative of error
 
     // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-    if (fabs(errorProportionalL) > integralBoundL) {
-      errorIntegralL += lI * (errorProportionalL);
+    if (fabs(proportionalErrorL) > integralBoundL) {
+      integralErrorL += lI * (proportionalErrorL);
     } else {
-      errorIntegralL = 0;
+      integralErrorL = 0;
     }
 
-    lateralPower = (errorProportionalL + errorDerivativeL + errorIntegralL) * lOutput;
+    lateralPower = (proportionalErrorL + derivativeErrorL + integralErrorL) * lOutput;
 
     ///////////////////////////////////////
     //////      Rotational PID       //////
     ///////////////////////////////////////
 
-    errorProportionalR = rP * (desiredHeading - heading);           // proportional error
-    errorDerivativeR = rD * (errorProportionalR - previousErrorR);  // derivative of error
+    proportionalErrorR = rP * (desiredHeading - heading);           // proportional error
+    derivativeErrorR = rD * (proportionalErrorR - previousErrorR);  // derivative of error
 
     // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
-    if (fabs(errorProportionalR) > integralBoundR) {
-      errorIntegralR += rI * (errorProportionalR);
+    if (fabs(proportionalErrorR) > integralBoundR) {
+      integralErrorR += rI * (proportionalErrorR);
     } else {
-      errorIntegralR = 0;
+      integralErrorR = 0;
     }
 
-    rotationalPower = (errorProportionalR + errorDerivativeR + errorIntegralR) * rOutput;
+    rotationalPower = (proportionalErrorR + derivativeErrorR + integralErrorR) * rOutput;
 
     ///////////////////////////////////////
     //////        ending math        //////
@@ -415,11 +435,27 @@ bool AutonPID() {
     LDrive.move_velocity(autonDriveMult * (lateralPower + rotationalPower));
     RDrive.move_velocity(autonDriveMult * (lateralPower - rotationalPower));
 
-    previousErrorL = errorProportionalL;
-    previousErrorR = errorProportionalR;
+    previousErrorL = proportionalErrorL;
+    previousErrorR = proportionalErrorR;
+
+    if (isPrinting) {
+      if (!isPrintingList[3]) {  // [3] PID - 2
+        isPrintingList[3] = true;
+      }
+
+      int startingPage = pageRangeFinder(3);
+
+      PrintToController("Time: ", globalTimer, 5, 0, startingPage);
+      PrintToController("LOut: ", (autonDriveMult * (lateralPower + rotationalPower)), 5, 0, startingPage);
+      PrintToController("ROut: ", (autonDriveMult * (lateralPower + rotationalPower)), 5, 0, startingPage);
+
+      PrintToController("LError: ", proportionalErrorL, 5, 0, startingPage + 1);
+      PrintToController("LatOut: ", lateralPower, 5, 1, startingPage + 1);
+      PrintToController("RotOut: ", rotationalPower, 5, 2, startingPage + 1);
+    }
   }
 
-  return (fabs(errorProportionalL) <= (3 * degPerCM) && fabs(errorProportionalR) <= 1.5) ? true : false;  // return true if done movement
+  return (fabs(proportionalErrorL) <= (3 * degPerCM) && fabs(proportionalErrorR) <= 1.5) ? true : false;  // return true if done movement
 }
 
 
@@ -438,20 +474,18 @@ float previousErrorF = 0;  // previous error variable for the flystick arm
 bool allowAdjust = false;
 
 void AdjustFlystick(bool isPrinting, bool move) {
-  float fP = 0.7;
-  float fD = 0.8;
-  float fO = 1.7;
+  const float fP = 0.7;
+  const float fD = 0.8;
+  const float fO = 1.7;
 
   int deadzoneF = 0.3;
 
-  // responsible for changing/maintaining the position of the flystick using a
-  // PD controller the integral men live in my walls
+  // responsible for changing/maintaining the position of the flystick using a PD controller, as the integral men live in my walls
 
   int desiredRotation;
   float armPos = ArmRot.get_angle() / 100;
 
-  if (flystickArmPos == 0) {  // kills the function if the arm is in kickstand
-                              // mode, or out of bounds
+  if (flystickArmPos == 0) {  // kills the function if the arm is in kickstand mode or out of bounds
     return;
   }
 
@@ -502,16 +536,12 @@ int selectedRoute = 3;
 
 int startingWheelPos;
 
-std::array<int, 2> ReadBopItOutputs() {
+std::array<int, 2> ReadBopItOutputs(bool isPrinting) {
   lcdControl();
 
   int armInput = (ArmRot.get_angle() / 10000);
 
   int wheelDelta = abs(startingWheelPos - prevWheelPos);
-
-  PrintToController("wheelDelt: %d", wheelDelta, 0, 2);
-  PrintToController("refPos: %d", startingWheelPos, 1, 2);
-  PrintToController("prevPos: %d", prevWheelPos, 2, 2);
 
 
   int wheelInput;
@@ -526,69 +556,15 @@ std::array<int, 2> ReadBopItOutputs() {
 
   prevWheelPos = (globalTimer % 5 == 0) ? (FlywheelM.get_position() - startingWheelPos) : prevWheelPos;
 
-  return {armInput, wheelInput};
-}
+  if (isPrinting) {
+    int startPage = pageRangeFinder(0);
 
-
-
-void controllerAutonSelect() {  // cool, efficient, but controllers are disabled during pre-auton so entirely useless
-
-  while ((selectorStage < 2) && (globalTimer < (10 * timerTickRate))) {
-    lcdControl();
-
-    switch (selectorStage) {
-      case 0:
-
-        if (MainControl.get_digital_new_press(DIGITAL_UP) && selectedRoute < 4) {
-          selectedRoute++;
-        }
-        if (MainControl.get_digital_new_press(DIGITAL_DOWN) && selectedRoute > 1) {
-          selectedRoute--;
-        }
-        if (MainControl.get_digital_new_press(DIGITAL_A)) {
-          selectorStage++;
-        }
-
-        PrintToController("Select Auton Route:", 0, 0, 1);
-        PrintToController("Sk: 1 Off: 2 Def: 3", 0, 1, 1);
-        PrintToController("Current Route: %d", selectedRoute, 2, 1);
-
-        break;
-
-      case 1:
-
-        if (MainControl.get_digital_new_press(DIGITAL_A)) {
-          selectorStage++;
-        }
-
-        if (MainControl.get_digital_new_press(DIGITAL_B)) {
-          selectorStage--;
-        }
-
-        PrintToController("Selected Route:", 0, 0, 1);
-        PrintToController("Confirm/Back: (A/B)", 0, 2, 1);
-
-        switch (selectedRoute) {
-          case 1:
-            PrintToController("        Skills", 0, 1, 1);
-            break;
-          case 2:
-            PrintToController("       Offence", 0, 1, 1);
-            break;
-          case 3:
-            PrintToController("       Defence", 0, 1, 1);
-            break;
-        }
-
-        break;
-    }
-
-    globalTimer++;  // need timer for print function
-    delay(tickDeltaTime);
+    PrintToController("wheelDelt: %d", wheelDelta, 3, 0, startPage);
+    PrintToController("refPos: %d", startingWheelPos, 3, 1, startPage);
+    PrintToController("prevPos: %d", prevWheelPos, 2, 3, startPage);
   }
 
-  PrintToController("Auton %d Selected", selectedRoute, 1, 1);
-  globalTimer = 0;
+  return {armInput, wheelInput};
 }
 
 
@@ -661,9 +637,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
   // filter out stick drift / nonpressed sticks. saves resources by skipping calculations when not driving
   if ((abs(XStickPercent) + abs(YStickPercent)) >= deadband) {
-    // increasing/decreasing the acceleratory variables whether the sticks are held down or not
-
-    static float ptsPerTick = 4;
+    static float ptsPerTick = 4;                                   // inreasing or decreasing the acceleration functions' timer
     LAccelTime += (LAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
     RAccelTime += (RAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
 
@@ -671,12 +645,16 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     // applying the acceleratory curve to the stick inputs, multiplies the stick values by the output of the accel smoothing function
 
     int lateralOutput = AccelSmoothingFunc(LAccelTime) * XStickPercent;
-    int rotationalOutput = AccelSmoothingFunc(RAccelTime) * YStickPercent;
+
+    float rotationalMult = (-0.000014 * powf(lateralOutput, 2)) + (-0.0061 * lateralOutput) + 1;
+    // graphed and explained here: [https://www.desmos.com/calculator/9ft1hej0ib]
+
+    int rotationalOutput = rotationalMult * ((100 - lateralOutput) / 100) * AccelSmoothingFunc(RAccelTime) * YStickPercent;
 
 
     // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values. Limits situations
     // in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-    int maxOutExponent = abs(XStickPercent * powf(YStickPercent, 1.1)) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
+    int maxOutExponent = abs(XStickPercent * YStickPercent) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
     int maxOutputAdjust = (YStickPercent / abs(YStickPercent)) * powf(RAccelTime, maxOutExponent);
 
 
@@ -688,10 +666,19 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
     RDrive.move_velocity(6 * rightOutput);
 
-    if (isPrinting) {
-      PrintToController("LDrive: %d", 6 * leftOutput, 1, 1);
-      PrintToController("RDrive: %d", 6 * rightOutput, 2, 1);
+
+    if (isPrinting) {  // [4] Drivetrain - 2
+      if (!isPrintingList[4]) {
+        isPrintingList[4] = true;
+      }
+
+      int startPage = pageRangeFinder(4);
+
+      PrintToController("Time: ", globalTimer, 5, 0, startPage);
+      PrintToController("LDrive: %d", leftOutput, 5, 1, 1);
+      PrintToController("RDrive: %d", rightOutput, 5, 2, 1);
     }
+
 
   } else {  // if not want move, dont move
     LDrive.move_velocity(0);
@@ -700,15 +687,14 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 }  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default. Graph may be outdated
 
 
-#pragma region AuxiliaryStuff
+#pragma region AuxiliaryFunctions
 
 bool flywheelFWD = true;  // flywheel is inherently inverted so this reads as the opposite of what it does
 bool flywheelOn = false;
 
-void FlystickControl(bool isPrinting) {  // done
-  // responsible for selecting the elevation of the flystick
+void FlystickControl(bool isPrinting) {  // controls driver interaction with the flystick
 
-  int cooldown = 3;
+  const int cooldown = 5;
 
   if (MainControl.get_digital_new_press(DIGITAL_UP) && flystickArmPos < maxflystickArmPos) {
     flystickArmPos++;
@@ -725,6 +711,11 @@ void FlystickControl(bool isPrinting) {  // done
     FlywheelM.set_reversed(flywheelFWD);
   }
 
+
+  if ((globalTimer - lastSpinTimestamp >= cooldown) && MainControl.get_digital_new_press(DIGITAL_A)) {
+    flywheelOn = !flywheelOn;
+  }
+
   switch (flywheelOn) {
     case 0:
       FlywheelM.move_velocity(0);
@@ -733,10 +724,6 @@ void FlystickControl(bool isPrinting) {  // done
       FlywheelM.move_velocity(maxFlywheelSpeed * 2);
       break;
   }
-
-  if ((globalTimer - lastSpinTimestamp >= cooldown) && MainControl.get_digital_new_press(DIGITAL_A)) {
-    flywheelOn = !flywheelOn;
-  }
 }
 
 
@@ -744,7 +731,7 @@ void FlystickControl(bool isPrinting) {  // done
 bool RWingLockedOut = false;
 bool LWingLockedOut = false;
 
-void WingsControl() {  // done
+void WingsControl() {  // controls... wings
 
   if (MainControl.get_digital_new_press(DIGITAL_L2)) {
     LWingLockedOut = !LWingLockedOut;
@@ -757,7 +744,7 @@ void WingsControl() {  // done
   }
 }
 
-#pragma endregion
+#pragma endregion  // end of AuxilaryFunctions
 
 #pragma endregion  // end of UserControlFunctions
 
@@ -789,7 +776,7 @@ void WingsControl() {  // done
 float adjustFactor = 0.1;  // the increment by which PID variables change during manual tuning
 bool isTuningTurns = false;
 
-void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
+void tunePID(bool isPrinting) {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
 
   lP = 0.0;
   lD = 0.0;
@@ -837,15 +824,7 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
     }
 
 
-    PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 0, 2);
-    PrintToController("IVar: %d", (isTuningTurns ? rI : lI) * 10, 1, 2);
-    PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 2, 2);
-
-    PrintToController("Turning?: %d", isTuningTurns, 0, 3);
-    PrintToController("lOutput: %d", lOutput, 1, 3);
-    PrintToController("rOutput: %d", rOutput, 2, 3);
-
-    AutonPID();
+    AutonPID(false);
 
     if (globalTimer % (6 * timerTickRate) < (3 * timerTickRate)) {  // flips 180 or drives 1m in alternating directions at regular intervals
       desiredDist = isTuningTurns ? 0 : 50 * degPerCM;
@@ -855,6 +834,25 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
       desiredHeading = isTuningTurns ? -90 : 0;
     }
 
+
+    if (isPrinting) {
+      if (!isPrintingList[8]) {  // [8] PID Tune - 2
+        isPrintingList[8] = true;
+      }
+
+
+      int startPage = pageRangeFinder(8);
+
+      PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 4, 0, startPage);
+      PrintToController("IVar: %d", (isTuningTurns ? rI : lI) * 10, 4, 1, startPage);
+      PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 4, 2, startPage);
+
+      PrintToController("Turning?: %d", isTuningTurns, 1, 0, startPage + 1);
+      PrintToController("lOutput: %d", lOutput, 1, 5, startPage + 1);
+      PrintToController("rOutput: %d", rOutput, 2, 5, startPage + 1);
+    }
+
+
     globalTimer++;
     delay(tickDeltaTime);
   }
@@ -862,7 +860,7 @@ void tunePID() {  // turns or oscilates repeatedly to test and tune the PID, all
 
 
 
-void tuneDrive() {  // allows for user driving, with real time control over drive coefficients
+void tuneDrive(bool isPrinting) {  // allows for user driving, with real time control over drive coefficients
   // default settings for acceleratory / stick curves
 
   ACurveExtremity = 0.19948;  // sigma
@@ -899,18 +897,22 @@ void tuneDrive() {  // allows for user driving, with real time control over driv
 
     DrivingControl(false);
 
-#pragma region Diagnostics
 
-    std::string kappa = "ACurveHarsh: " + std::to_string(static_cast<int>(ACurveExtremity * 100000) / 100000);
-    std::string sigma = "ACurveMin: " + std::to_string(static_cast<int>(AMinAmount * 1000) / 1000);
-    std::string gVal = "SCurveLinear: " + std::to_string(static_cast<int>(linearHarshness * 10) / 10);
-    std::string hVal = "SCurveExp.: " + std::to_string(static_cast<int>(SCurveExtremity * 10) / 10);
 
-    PrintToController(kappa, 0, 0, 1);
-    PrintToController(sigma, 0, 1, 1);
-    PrintToController(gVal + hVal, 0, 2, 1);
+    if (isPrinting) {  // [7] Drive Tune - 1
+      if (!isPrintingList[7]) {
+        isPrintingList[7] = true;
+      }
 
-#pragma endregion
+      int startPage = pageRangeFinder(7);
+
+      PrintToController("kappa: ", ACurveExtremity, 7, 0, startPage);
+      PrintToController("smigma: ", AMinAmount, 5, 1, startPage);
+
+      std::array<float, 2> HAndG = {linearHarshness, SCurveExtremity};
+      PrintToController("g and h: ", HAndG, 3, 2, startPage);
+    }
+
 
     globalTimer++;
     delay(tickDeltaTime);
@@ -926,6 +928,8 @@ void tuneDrive() {  // allows for user driving, with real time control over driv
 #pragma region Pregame //code which executes before a game starts
 
 void initialize() {
+  selectorPrinting();
+
   WingPL.set_value(false);
   WingPR.set_value(false);
 
@@ -937,10 +941,9 @@ void initialize() {
   mStartPosR = RDriveTopM.get_position();
 
   FullDrive.set_brake_modes(E_MOTOR_BRAKE_COAST);
-
   FlywheelM.set_brake_mode(E_MOTOR_BRAKE_COAST);
-
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_HOLD);
+
   ArmRot.reverse();
 
   defaultArmPos = ArmRot.get_position() / 100;
@@ -955,36 +958,44 @@ void competition_initialize() {  // auton selector (bop-it!)
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
 
   while ((selectorStage < 2) && (globalTimer < (20 * timerTickRate))) {
-    selectorStage += ReadBopItOutputs().at(1);  // 0 = no spin, 1 = fwd, -1 = bwd. Has a cooldown between inputs
+    lcdControl();
+    selectorStage += ReadBopItOutputs(false).at(1);  // 0 = no spin, 1 = fwd, -1 = bwd. Has a cooldown between inputs
 
     switch (selectorStage) {
       case 0:
 
-        selectedRoute = ReadBopItOutputs().at(0);  // takes the position of the arm ONLY if in first stage of selector
+        selectedRoute = ReadBopItOutputs(false).at(0);  // takes the position of the arm ONLY if in first stage of selector
 
-        PrintToController("Select Auton Route:", 0, 0, 1);
-        PrintToController("Sk: 1 Off: 2 Def: 3", 0, 1, 1);
-        PrintToController("Current Route: %d", selectedRoute, 2, 1);
+        if (isPrintingList[1]) {  // [1] AutoSel - 1
+          int startPage = pageRangeFinder(1);
+
+          PrintToController("Select Auton Route:", 0, 0, 0, startPage);
+          PrintToController("Sk: 1 Off: 2 Def: 3", 0, 0, 1, startPage);
+          PrintToController("Current Route: ", selectedRoute, 1, 2, startPage);
+        }
 
         break;
 
       case 1:
 
-        PrintToController("Selected Route:", 0, 0, 1);
-        PrintToController("Confirm  /  Back", 0, 2, 1);
+        if (isPrintingList[1]) {  // [1] AutoSel - 1
+          int startPage = pageRangeFinder(1);
 
-        switch (selectedRoute) {
-          case 1:
-            PrintToController("        Skills", 0, 1, 1);
-            break;
-          case 2:
-            PrintToController("       Offence", 0, 1, 1);
-            break;
-          case 3:
-            PrintToController("       Defence", 0, 1, 1);
-            break;
+          PrintToController("Selected Route:", 0, 1, 0, startPage);
+          PrintToController("Confirm  /  Back", 0, 2, 0, startPage);
+
+          switch (selectedRoute) {
+            case 1:
+              PrintToController("        Skills", 0, 1, 0, startPage);
+              break;
+            case 2:
+              PrintToController("       Offence", 0, 1, 0, startPage);
+              break;
+            case 3:
+              PrintToController("       Defence", 0, 1, 0, startPage);
+              break;
+          }
         }
-
         break;
     }
 
@@ -993,11 +1004,18 @@ void competition_initialize() {  // auton selector (bop-it!)
   }
 
   FlystickArmM.set_brake_mode(E_MOTOR_BRAKE_COAST);
-  PrintToController("Auton %d Selected", selectedRoute, 1, 1);
+  PrintToController("Auton Selected: ", selectedRoute, 1, 1, 1);
   globalTimer = 0;
 }
 
 
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
+#pragma region dataStorage // should be ported to individual header files at some point
 
 #pragma region autonRoutes
 
@@ -1081,6 +1099,46 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
 
 #pragma endregion
 
+#pragma region printingConfigs
+
+void selectorPrinting() {     // innefficient, hardcoding would be better
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = true;   // Auton Selector - enabled
+  isPrintingList[2] = false;  // Auton Route - disabled
+  isPrintingList[3] = false;  // PID - disabled
+  isPrintingList[4] = false;  // Drivetrain - disabled
+  isPrintingList[5] = false;  // GPS - disabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+void autonPrinting() {
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = false;  // Auton Selector - disabled
+  isPrintingList[2] = true;   // Auton Route - enabled
+  isPrintingList[3] = true;   // PID - enabled
+  isPrintingList[4] = false;  // Drivetrain - disabled
+  isPrintingList[5] = true;   // GPS - enabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+void userControlPrinting() {
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = false;  // Auton Selector - disabled
+  isPrintingList[2] = false;  // Auton Route - disabled
+  isPrintingList[3] = false;  // PID - disabled
+  isPrintingList[4] = true;   // Drivetrain - enabled
+  isPrintingList[5] = true;   // GPS - enabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+#pragma endregion  // printingConfigs
+
 #pragma endregion
 
 
@@ -1090,6 +1148,7 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
 
 void autonomous() {
   // selectedRoute = 3;
+  autonPrinting();
 
   switch (selectedRoute) {
     case 1:
@@ -1116,42 +1175,19 @@ void autonomous() {
 
     float inerHeading = (Inertial.get_heading() > 180) ? (-1 * (360 - Inertial.get_heading())) : Inertial.get_heading();
 
-    bool stepPIDIsComplete = AutonPID();
+    bool isCurrStepComplete = AutonPID(true);
 
-#pragma region diagnostics
+    if (autonStep > totalNumOfCommands) {  // kills the program if auton route is complete
 
-    // reports values relating to the movement of the flystick on page 1
-    PrintToController("Step: %d", autonStep, 0, 1);
-    PrintToController("Timer: %d", globalTimer, 1, 1);
-    PrintToController("Route: %d", selectedRoute, 2, 1);
-
-    // reports values relating to the overall progression of the autonomous
-    // on page 2
-    PrintToController("Timer: %d", globalTimer, 0, 2);
-    PrintToController("Wing??: %d", wingsOut, 1, 2);
-    PrintToController("DelayDone?: %d", (globalTimer - endDelayTimeStamp), 2, 2);
-
-    // reports values relating to the PID movement on pages 3 & 4
-    PrintToController("Complete?: %d", stepPIDIsComplete, 0, 3);
-    PrintToController("Head: %d", inerHeading, 1, 3);
-    PrintToController("ErrorR: %d", errorProportionalR, 2, 3);
-
-    PrintToController("Complete?: %d", stepPIDIsComplete, 0, 4);
-    PrintToController("TargDist: %d", desiredDist, 1, 4);
-    PrintToController("ErrorL: %d", (RDriveTopM.get_position() + LDriveTopM.get_position()) / 2, 2, 4);
-
-#pragma endregion
-
-    if (autonStep > totalNumOfCommands) {  // kills the program if auton
-                                           // route is complete
       while (true) {
         FullDrive.move_velocity(0);
-        PrintToController("Out of bounds", 0, 1, 1);
+        PrintToController("Out of bounds", 0, 0, 1, 1);
 
         globalTimer++;
         delay(tickDeltaTime);
       }
-    } else if ((MainControl.get_digital_new_press(DIGITAL_X) || stepPIDIsComplete) && (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) {
+
+    } else if ((MainControl.get_digital_new_press(DIGITAL_X) || isCurrStepComplete) && (timeSincePoint(stepChangeTimeStamp) > endDelayTimeStamp)) {
       autonStep++;
 
       stepChangeTimeStamp = globalTimer;
@@ -1160,6 +1196,14 @@ void autonomous() {
 
       ReadAutonStep();
     }
+
+    if (isPrintingList[2]) {  // [2] AutRoute - 1
+      int startingPage = pageRangeFinder(2);
+
+      PrintToController("Heading: ", inerHeading, 4, 1, startingPage);
+      PrintToController("StepDone?: ", isCurrStepComplete, 1, 0, startingPage);
+      PrintToController("DelayDone?: ", (globalTimer - endDelayTimeStamp), 3, 2, startingPage);
+    }  // diagnostics section
 
     globalTimer++;
     delay(tickDeltaTime);
@@ -1174,26 +1218,12 @@ void autonomous() {
 
 void opcontrol() {
   // competition_initialize();
-  //  autonomous();
+  // autonomous();
 
   // tunePID();
   // tuneDrive();
 
-  /*std::array<double, 3> displacement = {0.0, 0.0, 0.0};
-
-  while (true) {
-    std::array<double, 3> velocity = calculateKinematics(true, true);
-    displacement[0] = calculateKinematics(false, false)[0] * 10000;
-
-    lcdControl();
-
-    PrintToController("Time: %d", globalTimer, 0, 1);
-    PrintToController("XDispl: %d", displacement.at(0) * 100, 1, 1);
-    PrintToController("XAccel: %d", Inertial.get_accel().x * 98.1, 2, 1);
-
-    globalTimer++;
-    delay(tickDeltaTime);
-  }*/
+  userControlPrinting();
 
   flywheelFWD = true;
 
@@ -1204,13 +1234,7 @@ void opcontrol() {
     WingsControl();
     FlystickControl(false);
     AdjustFlystick(false, true);
-    // updateGlobalPosition(true);
     lcdControl();
-
-
-    PrintToController("Time: %d", globalTimer, 0, 1);
-    // PrintToController("XDispl: %d", displacement.at(0), 1, 1);
-    // PrintToController("XAccel: %d", currAcceleration.at(0) * 10, 2, 1);
 
     globalTimer++;
     delay(tickDeltaTime);
