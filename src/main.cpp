@@ -161,7 +161,7 @@ const int pagesPerPrint[9] = {1, 1, 1, 2, 2, 1, 2, 1, 2};  // hardcoded list con
 int pageRangeFinder(int index) {
   int startingPage;
 
-  for (int j = 0; j <= index; ++j) {
+  for (int j = 0; j < index; ++j) {
     startingPage += isPrintingList[j] ? pagesPerPrint[j] : 0;
   }
 
@@ -175,7 +175,8 @@ void PrintToController(std::string prefix, double data, int numOfDigits, int row
       MainControl.clear();
     }
 
-    std::string output = prefix + std::to_string(data).substr(0, numOfDigits);  // takes the first n digits of the number, adds it to output as string
+    std::string output =
+        prefix + std::to_string(data).substr(0, numOfDigits + 1);  // takes the first n digits of the number, adds it to output as string
 
     MainControl.print(row, 0, output.c_str(), 0);
   }
@@ -193,7 +194,7 @@ void PrintToController(std::string prefix, const std::array<T, N> &data, int num
 
     for (size_t j = 0; j < N; ++j) {
       double currNum = data[j];
-      output += (j < N - 1) ? std::to_string(currNum).substr(0, numOfDigits) + ", " : std::to_string(currNum).substr(0, numOfDigits);
+      output += (j < N - 1) ? std::to_string(currNum).substr(0, numOfDigits + 1) + ", " : std::to_string(currNum).substr(0, numOfDigits + 1);
     }
 
     MainControl.print(row, 0, output.c_str(), 0);
@@ -622,6 +623,9 @@ int LAccelTime = 0;
 bool isDriveReversed = false;
 int reverseDrive = 1;
 
+int prevXStickPercent = 0;
+int prevYStickPercent = 0;
+
 void DrivingControl(bool isPrinting) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
@@ -637,6 +641,8 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
   // filter out stick drift / nonpressed sticks. saves resources by skipping calculations when not driving
   if ((abs(XStickPercent) + abs(YStickPercent)) >= deadband) {
+    int fullStopThreshold = 150;
+
     static float ptsPerTick = 4;                                   // inreasing or decreasing the acceleration functions' timer
     LAccelTime += (LAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // Y(x) on graph
     RAccelTime += (RAccelTime <= 100) ? ptsPerTick : -ptsPerTick;  // X(x) on graph
@@ -647,25 +653,28 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     int lateralOutput = AccelSmoothingFunc(LAccelTime) * XStickPercent;
 
     float rotationalMult = (-0.000014 * powf(lateralOutput, 2)) + (-0.0061 * lateralOutput) + 1;
-    // graphed and explained here: [https://www.desmos.com/calculator/9ft1hej0ib]
+    // graphed and explained here: [https://www.desmos.com/calculator/zyd1xfamrm]
 
-    int rotationalOutput = rotationalMult * ((100 - lateralOutput) / 100) * AccelSmoothingFunc(RAccelTime) * YStickPercent;
-
-
-    // allows for turning at high speeds by lowering the "maximum" average power of the drive based on stick values. Limits situations
-    // in which the functions are trying to return values over 100%, which would nerf turns (as they're be capped at 100% power IRL)
-    int maxOutExponent = abs(XStickPercent * YStickPercent) / pow(100, 2);  // d on graph abs(XStickPercent * YStickPercent) / pow(100, 2);
-    int maxOutputAdjust = (YStickPercent / abs(YStickPercent)) * powf(RAccelTime, maxOutExponent);
-
+    int rotationalOutput = (rotationalMult * AccelSmoothingFunc(RAccelTime) * YStickPercent);  // ((100 - abs(lateralOutput)) / 100)
 
     // converting the fwd/bckwd/turning power into output values for the left and right halves of the drivetrain, then driving
 
-    int leftOutput = clamp(((lateralOutput + rotationalOutput) - maxOutputAdjust + 1), -100, 100);
-    int rightOutput = clamp((((lateralOutput - rotationalOutput)) + maxOutputAdjust - 1), -100, 100);
 
-    LDrive.move_velocity(6 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
-    RDrive.move_velocity(6 * rightOutput);
+    int leftOutput = ((lateralOutput + rotationalOutput));
+    int rightOutput = ((lateralOutput - rotationalOutput));
 
+    // implementing hard stops if the sticks are flicked the opposite way
+    if (abs(prevXStickPercent - XStickPercent) > fullStopThreshold || abs(prevYStickPercent - YStickPercent) > fullStopThreshold) {
+      LDrive.move_velocity(0);
+      RDrive.move_velocity(0);
+
+    } else {
+      LDrive.move_velocity(5.8 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
+      RDrive.move_velocity(5.8 * rightOutput);
+    }
+
+    prevXStickPercent = XStickPercent;
+    prevYStickPercent = YStickPercent;
 
     if (isPrinting) {  // [4] Drivetrain - 2
       if (!isPrintingList[4]) {
@@ -675,14 +684,34 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
       int startPage = pageRangeFinder(4);
 
       PrintToController("Time: ", globalTimer, 5, 0, startPage);
-      PrintToController("LDrive: %d", leftOutput, 5, 1, 1);
-      PrintToController("RDrive: %d", rightOutput, 5, 2, 1);
+      PrintToController("LDrive: ", leftOutput, 5, 1, startPage);
+      PrintToController("RDrive: ", rightOutput, 5, 2, startPage);
+
+      PrintToController("OutAdj: ", rotationalMult, 5, 0, startPage + 1);
+      PrintToController("LOut: ", lateralOutput, 5, 1, startPage + 1);
+      PrintToController("ROut: ", rotationalOutput, 5, 2, startPage + 1);
     }
 
 
   } else {  // if not want move, dont move
     LDrive.move_velocity(0);
     RDrive.move_velocity(0);
+
+    if (isPrinting) {  // [4] Drivetrain - 2
+      if (!isPrintingList[4]) {
+        isPrintingList[4] = true;
+      }
+
+      int startPage = pageRangeFinder(4);
+
+      PrintToController("Time: ", globalTimer, 5, 0, startPage);
+      PrintToController("LDrive: %d", 0.0, 5, 1, startPage);
+      PrintToController("RDrive: %d", 0.0, 5, 2, startPage);
+
+      PrintToController("OutAdj: ", 0.0, 5, 0, startPage + 1);
+      PrintToController("LOut: %d", 0.0, 5, 1, startPage + 1);
+      PrintToController("ROut: %d", 0.0, 5, 2, startPage + 1);
+    }
   }
 }  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default. Graph may be outdated
 
@@ -925,6 +954,139 @@ void tuneDrive(bool isPrinting) {  // allows for user driving, with real time co
 // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
 
+#pragma region dataStorage // should be ported to individual header files at some point
+
+#pragma region autonRoutes
+
+int totalNumOfCommands = 50;
+
+void skillsAuton() {
+  // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
+  // wingsOut(bool), delay(seconds)]
+
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
+  autonCommands[1] = {0, 0, 0, 0, 0, 0};
+  autonCommands[2] = {0, 0, 3, 100, 0, 35};    // Match loads for 35 seconds
+  autonCommands[3] = {20, 0, 0, -1, 0, 0};     // Move forward in preperation for turn
+  autonCommands[4] = {0, 90, 0, -1, 0, 0};     // 90 degree turn right to align robot for triball scoring in net
+  autonCommands[5] = {-65, 0, 1, 0, 0, 0};     // push preload triballs towards goal
+  autonCommands[6] = {20, 0, 0, 0, 0, 0};      // move back (preparing for 2nd push into goal)
+  autonCommands[7] = {-25, 0, 0, 0, 0, 0};     // push triballs into goal
+  autonCommands[8] = {110, 0, 0, 0, 0, 0};     // move towardsd wall, triballs are scored, time to try and score triballs in oposite goal
+  autonCommands[9] = {0, -45, 0, 0, 0, 0};     // turn to be parallel with the arena, facing our colors low hang bar
+  autonCommands[10] = {200, 0, 0, 0, 0, 0};    // move from our side to the other side of the feild
+  autonCommands[11] = {0, -45, 0, 0, 0, 0};    // turn towards the net
+  autonCommands[12] = {70, 0, 0, 0, 0, 0};     // push triballs into the net
+  autonCommands[13] = {0, -45, 0, 0, 0, 0};    // turn to face net
+  autonCommands[14] = {-20, 0, 0, 0, 0, 0};    // move back to be in position to push triballs in the side of the net again
+  autonCommands[15] = {45, 0, 0, 0, 0, 0};     // push triballs into net
+  autonCommands[16] = {0, -90, 0, 0, 0, 0};    // turn away from the net to get into position to push the front
+  autonCommands[17] = {70, 0, 0, 0, 0, 0};     // drive to get ahead of goal net
+  autonCommands[18] = {0, 45, 0, 0, 0, 0};     // turn to be perpendicular to match load zone
+  autonCommands[19] = {15, 0, 0, 0, 0, 0};     // position ourselves more in front of the net
+  autonCommands[20] = {0, 112.5, 0, 0, 0, 0};  // turn to face front of net
+  autonCommands[21] = {60, 0, 0, 0, 0, 0};     // push triballs into front of net
+  // samich yummmmmmmmmy
+
+  totalNumOfCommands = 21;
+}
+
+void offenceAuton() {  // starting on the enemy side of the field (no match
+                       // loading)
+  // autonCommands[ autonStep ] = {[]}
+  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
+  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};     // null start, copy/paste to make new step and KEEP AS POSITION 0
+  autonCommands[1] = {-35, 0, 0, 0, 0, 0};   // drive along match load bar
+  autonCommands[2] = {0, -10, 0, 0, 0, 0};   // turn slightly away from wall
+  autonCommands[3] = {-45, 0, 0, 0, 0, 0};   // ram preload into net
+  autonCommands[4] = {60, 0, 0, 0, 0, 0};    // drive back to halfway along match load bar
+  autonCommands[5] = {0, 80, 0, 0, 0, 0};    // turn to face away from match load bar
+  autonCommands[6] = {10, 0, 5, 80, 0, 0};   // lower arm and spin flywheel
+  autonCommands[7] = {-30, 0, 0, -1, 0, 0};  // reverse into corner tribal, launching it out of corner
+  autonCommands[8] = {0, 100, 3, 0, 0, 0};   // stop flystick and turn towards horizontal climb bar
+  autonCommands[9] = {-35, 0, 0, 0, 0, 0};   // drive to entrance of climb bar corridor
+  autonCommands[10] = {0, 45, 0, 0, 0, 0};   // turn to face horizontal climb bar
+  autonCommands[11] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
+
+  totalNumOfCommands = 0;
+}
+
+void defenceAuton() {  // starting on the team side of the field (match loading)
+  // autonCommands[ autonStep ] = {[]}
+  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
+  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
+  autonCommands[1] = {0, 0, 0, 0, 0, 1};
+  autonCommands[2] = {-35, 0, 0, 0, 0, 0};   // drive along match load bar
+  autonCommands[3] = {0, 10, 0, 0, 0, 0};    // turn slightly away from wall
+  autonCommands[4] = {-45, 0, 0, 0, 0, 0};   // ram preload into net
+  autonCommands[5] = {60, 0, 0, 0, 0, 0};    // drive back to halfway along match load bar
+  autonCommands[6] = {0, -90, 0, 0, 0, 0};   // turn to face away from match load bar
+  autonCommands[7] = {20, 0, 5, 80, 0, 2};   // lower arm and spin flywheel
+  autonCommands[8] = {-40, 0, 0, -1, 0, 2};  // reverse into corner tribal, launching it out of corner
+  autonCommands[9] = {0, -100, 3, 0, 0, 0};  // stop flystick and turn towards horizontal climb bar
+  autonCommands[10] = {-35, 0, 0, 0, 0, 0};  // drive to entrance of climb bar corridor
+  autonCommands[11] = {0, -45, 0, 0, 0, 0};  // turn to face horizontal climb bar
+  autonCommands[12] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
+
+  totalNumOfCommands = 12;
+}
+
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
+#pragma region printingConfigs
+
+void selectorPrinting() {     // innefficient, hardcoding would be better
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = true;   // Auton Selector - enabled
+  isPrintingList[2] = false;  // Auton Route - disabled
+  isPrintingList[3] = false;  // PID - disabled
+  isPrintingList[4] = false;  // Drivetrain - disabled
+  isPrintingList[5] = false;  // GPS - disabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+void autonPrinting() {
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = false;  // Auton Selector - disabled
+  isPrintingList[2] = true;   // Auton Route - enabled
+  isPrintingList[3] = true;   // PID - enabled
+  isPrintingList[4] = false;  // Drivetrain - disabled
+  isPrintingList[5] = true;   // GPS - enabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+void userControlPrinting() {
+  isPrintingList[0] = false;  // debug - disabled
+  isPrintingList[1] = false;  // Auton Selector - disabled
+  isPrintingList[2] = false;  // Auton Route - disabled
+  isPrintingList[3] = false;  // PID - disabled
+  isPrintingList[4] = true;   // Drivetrain - enabled
+  isPrintingList[5] = true;   // GPS - enabled
+  isPrintingList[6] = false;  // Kinematic Controller - disabled
+  isPrintingList[7] = false;  // Drive Tuning - disabled
+  isPrintingList[8] = false;  // PID Tuning - disabled
+}
+
+#pragma endregion  // printingConfigs
+
+#pragma endregion
+
+
+// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
+
 #pragma region Pregame //code which executes before a game starts
 
 void initialize() {
@@ -1009,137 +1171,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 }
 
 
-#pragma endregion
-
-
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-
-#pragma region dataStorage // should be ported to individual header files at some point
-
-#pragma region autonRoutes
-
-int totalNumOfCommands = 50;
-
-void skillsAuton() {
-  // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
-  // wingsOut(bool), delay(seconds)]
-
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
-  autonCommands[1] = {0, 0, 0, 0, 0, 0};
-  autonCommands[2] = {0, 0, 3, 100, 0, 35};    // Match loads for 35 seconds
-  autonCommands[3] = {20, 0, 0, -1, 0, 0};     // Move forward in preperation for turn
-  autonCommands[4] = {0, 90, 0, -1, 0, 0};     // 90 degree turn right to align robot for triball scoring in net
-  autonCommands[5] = {-65, 0, 1, 0, 0, 0};     // push preload triballs towards goal
-  autonCommands[6] = {20, 0, 0, 0, 0, 0};      // move back (preparing for 2nd push into goal)
-  autonCommands[7] = {-25, 0, 0, 0, 0, 0};     // push triballs into goal
-  autonCommands[8] = {110, 0, 0, 0, 0, 0};     // move towardsd wall, triballs are scored, time to try and score
-                                               // triballs in oposite goal
-  autonCommands[9] = {0, -45, 0, 0, 0, 0};     // turn to be parallel with the arena, facing our colors low hang bar
-  autonCommands[10] = {200, 0, 0, 0, 0, 0};    // move from our side to the other side of the feild
-  autonCommands[11] = {0, -45, 0, 0, 0, 0};    // turn towards the net
-  autonCommands[12] = {70, 0, 0, 0, 0, 0};     // push triballs into the net
-  autonCommands[13] = {0, -45, 0, 0, 0, 0};    // turn to face net
-  autonCommands[14] = {-20, 0, 0, 0, 0, 0};    // move back to be in position to push triballs in the side of the net again
-  autonCommands[15] = {45, 0, 0, 0, 0, 0};     // push triballs into net
-  autonCommands[16] = {0, -90, 0, 0, 0, 0};    // turn away from the net to get into position to push the front
-  autonCommands[17] = {70, 0, 0, 0, 0, 0};     // drive to get ahead of goal net
-  autonCommands[18] = {0, 45, 0, 0, 0, 0};     // turn to be perpendicular to match load zone
-  autonCommands[19] = {15, 0, 0, 0, 0, 0};     // position ourselves more in front of the net
-  autonCommands[20] = {0, 112.5, 0, 0, 0, 0};  // turn to face front of net
-  autonCommands[21] = {60, 0, 0, 0, 0, 0};     // push triballs into front of net
-  // samich yummmmmmmmmy
-
-  totalNumOfCommands = 21;
-}
-
-void offenceAuton() {  // starting on the enemy side of the field (no match
-                       // loading)
-  // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
-  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
-
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};     // null start, copy/paste to make new step and KEEP AS POSITION 0
-  autonCommands[1] = {-35, 0, 0, 0, 0, 0};   // drive along match load bar
-  autonCommands[2] = {0, -10, 0, 0, 0, 0};   // turn slightly away from wall
-  autonCommands[3] = {-45, 0, 0, 0, 0, 0};   // ram preload into net
-  autonCommands[4] = {60, 0, 0, 0, 0, 0};    // drive back to halfway along match load bar
-  autonCommands[5] = {0, 80, 0, 0, 0, 0};    // turn to face away from match load bar
-  autonCommands[6] = {10, 0, 5, 80, 0, 0};   // lower arm and spin flywheel
-  autonCommands[7] = {-30, 0, 0, -1, 0, 0};  // reverse into corner tribal, launching it out of corner
-  autonCommands[8] = {0, 100, 3, 0, 0, 0};   // stop flystick and turn towards horizontal climb bar
-  autonCommands[9] = {-35, 0, 0, 0, 0, 0};   // drive to entrance of climb bar corridor
-  autonCommands[10] = {0, 45, 0, 0, 0, 0};   // turn to face horizontal climb bar
-  autonCommands[11] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
-
-  totalNumOfCommands = 0;
-}
-
-void defenceAuton() {  // starting on the team side of the field (match loading)
-  // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
-  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
-
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
-  autonCommands[1] = {0, 0, 0, 0, 0, 1};
-  autonCommands[2] = {-35, 0, 0, 0, 0, 0};   // drive along match load bar
-  autonCommands[3] = {0, 10, 0, 0, 0, 0};    // turn slightly away from wall
-  autonCommands[4] = {-45, 0, 0, 0, 0, 0};   // ram preload into net
-  autonCommands[5] = {60, 0, 0, 0, 0, 0};    // drive back to halfway along match load bar
-  autonCommands[6] = {0, -90, 0, 0, 0, 0};   // turn to face away from match load bar
-  autonCommands[7] = {20, 0, 5, 80, 0, 2};   // lower arm and spin flywheel
-  autonCommands[8] = {-40, 0, 0, -1, 0, 2};  // reverse into corner tribal, launching it out of corner
-  autonCommands[9] = {0, -100, 3, 0, 0, 0};  // stop flystick and turn towards horizontal climb bar
-  autonCommands[10] = {-35, 0, 0, 0, 0, 0};  // drive to entrance of climb bar corridor
-  autonCommands[11] = {0, -45, 0, 0, 0, 0};  // turn to face horizontal climb bar
-  autonCommands[12] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
-
-  totalNumOfCommands = 12;
-}
-
-#pragma endregion
-
-#pragma region printingConfigs
-
-void selectorPrinting() {     // innefficient, hardcoding would be better
-  isPrintingList[0] = false;  // debug - disabled
-  isPrintingList[1] = true;   // Auton Selector - enabled
-  isPrintingList[2] = false;  // Auton Route - disabled
-  isPrintingList[3] = false;  // PID - disabled
-  isPrintingList[4] = false;  // Drivetrain - disabled
-  isPrintingList[5] = false;  // GPS - disabled
-  isPrintingList[6] = false;  // Kinematic Controller - disabled
-  isPrintingList[7] = false;  // Drive Tuning - disabled
-  isPrintingList[8] = false;  // PID Tuning - disabled
-}
-
-void autonPrinting() {
-  isPrintingList[0] = false;  // debug - disabled
-  isPrintingList[1] = false;  // Auton Selector - disabled
-  isPrintingList[2] = true;   // Auton Route - enabled
-  isPrintingList[3] = true;   // PID - enabled
-  isPrintingList[4] = false;  // Drivetrain - disabled
-  isPrintingList[5] = true;   // GPS - enabled
-  isPrintingList[6] = false;  // Kinematic Controller - disabled
-  isPrintingList[7] = false;  // Drive Tuning - disabled
-  isPrintingList[8] = false;  // PID Tuning - disabled
-}
-
-void userControlPrinting() {
-  isPrintingList[0] = false;  // debug - disabled
-  isPrintingList[1] = false;  // Auton Selector - disabled
-  isPrintingList[2] = false;  // Auton Route - disabled
-  isPrintingList[3] = false;  // PID - disabled
-  isPrintingList[4] = true;   // Drivetrain - enabled
-  isPrintingList[5] = true;   // GPS - enabled
-  isPrintingList[6] = false;  // Kinematic Controller - disabled
-  isPrintingList[7] = false;  // Drive Tuning - disabled
-  isPrintingList[8] = false;  // PID Tuning - disabled
-}
-
-#pragma endregion  // printingConfigs
-
-#pragma endregion
+#pragma endregion  // Pregame
 
 
 // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
@@ -1222,6 +1254,8 @@ void opcontrol() {
 
   // tunePID();
   // tuneDrive();
+
+
 
   userControlPrinting();
 
