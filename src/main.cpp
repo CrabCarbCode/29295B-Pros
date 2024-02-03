@@ -57,7 +57,7 @@ int mStartPosR;
 int globalTimer = 0;
 const int timerTickRate = 50;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / timerTickRate;
-const int minPrintingDelay = 3;  // std::ceil(50 / tickDeltaTime);
+const int minPrintingDelay = ceil(timerTickRate / tickDeltaTime);
 
 const float degPerCM = (360 * 2) / (4.1875 * Pi * 2.54);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/")
 
@@ -652,8 +652,8 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
     int lateralOutput = AccelSmoothingFunc(LAccelTime) * XStickPercent;
 
-    float rotationalMult = (-0.000014 * powf(lateralOutput, 2)) + (-0.0061 * lateralOutput) + 1;
-    // graphed and explained here: [https://www.desmos.com/calculator/zyd1xfamrm]
+    float rotationalMult = ((-0.004 * powf(lateralOutput, 2)) + (-0.2 * lateralOutput) + 100) / 100;
+    // graphed and explained here: [https://www.desmos.com/calculator/03mizqcj4f]
 
     int rotationalOutput = (rotationalMult * AccelSmoothingFunc(RAccelTime) * YStickPercent);  // ((100 - abs(lateralOutput)) / 100)
 
@@ -668,13 +668,17 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
       LDrive.move_velocity(0);
       RDrive.move_velocity(0);
 
+      prevXStickPercent = XStickPercent;
+      prevYStickPercent = YStickPercent;
     } else {
       LDrive.move_velocity(5.8 * leftOutput);  // stepping up the output from 0-100% to 0-600rpm
       RDrive.move_velocity(5.8 * rightOutput);
     }
 
-    prevXStickPercent = XStickPercent;
-    prevYStickPercent = YStickPercent;
+    if (globalTimer % minPrintingDelay) {
+      prevXStickPercent = XStickPercent;
+      prevYStickPercent = YStickPercent;
+    }
 
     if (isPrinting) {  // [4] Drivetrain - 2
       if (!isPrintingList[4]) {
@@ -713,7 +717,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
       PrintToController("ROut: %d", 0.0, 5, 2, startPage + 1);
     }
   }
-}  // graphed and simulated at [https://www.desmos.com/calculator/7tgvu9hlvs], modelled in % power output by default. Graph may be outdated
+}  // graphed and simulated at [https://www.desmos.com/calculator/zyd1xfamrm], modelled in % power output by default. Graph may be outdated
 
 
 #pragma region AuxiliaryFunctions
@@ -1015,8 +1019,7 @@ void offenceAuton() {  // starting on the enemy side of the field (no match
 
 void defenceAuton() {  // starting on the team side of the field (match loading)
   // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
-  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
 
   autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
   autonCommands[1] = {0, 0, 0, 0, 0, 1};
@@ -1033,6 +1036,24 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
   autonCommands[12] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
 
   totalNumOfCommands = 12;
+}
+
+void testAuton() {
+  // autonCommands[ autonStep ] = {[]}
+  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+
+
+  // simple test routine that drives in a square, raises and spins the flywheel for 5 seconds then lowers it and drives backwards
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};
+  autonCommands[1] = {25, 0, 0, 0, 0, 0};
+  autonCommands[2] = {0, 90, 0, 0, 0, 0};
+  autonCommands[3] = {25, 0, 0, 0, 0, 0};
+  autonCommands[4] = {0, 90, 0, 0, 0, 0};
+  autonCommands[5] = {25, 0, 0, 0, 0, 0};
+  autonCommands[6] = {0, 90, 0, 0, 0, 0};
+  autonCommands[7] = {25, 0, 0, 0, 0, 0};
+  autonCommands[8] = {0, 0, 3, 50, 0, 5};
+  autonCommands[9] = {-15, 0, 1, 0, 0, 0};
 }
 
 #pragma endregion
@@ -1179,7 +1200,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
 
 void autonomous() {
-  // selectedRoute = 3;
+  selectedRoute = 5;
   autonPrinting();
 
   switch (selectedRoute) {
@@ -1191,6 +1212,12 @@ void autonomous() {
       break;
     case 3:
       defenceAuton();
+      break;
+    case 4:
+      return;
+      break;
+    case 5:
+      testAuton();
       break;
   }
 
