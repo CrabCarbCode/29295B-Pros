@@ -58,7 +58,7 @@ int mStartPosR;
 int globalTimer = 0;
 const int ticksPerSec = 50;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / ticksPerSec;
-const int minPrintingDelay = ceil(ticksPerSec / tickDeltaTime);
+int minPrintingDelay = (ticksPerSec / tickDeltaTime) + 0.5; //ticksPerSec / tickDeltaTime
 
 const float degPerCM = (360 / (4.1875 * Pi * 2.54)) * (36 / 84);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/") * gear ratio
 
@@ -93,14 +93,18 @@ int timeSincePoint(int checkedTime) {
   return checkedTime < globalTimer ? (globalTimer - checkedTime) : -1;  // returns -1 if checkedtime is in the future
 }
 
+template <typename T>
+const float GreaterOf(T num1, T num2) {
+  return (num1 > num2) ? num1 : num2;
+}
 
 const bool IsWithinRange(float num, float lowerBound, float upperBound) { return num >= lowerBound && num <= upperBound; }
 
 
 // variables which control the shape/range of the acceleratory function
-float ACurveExtremity = 0.19948;  // sigma
+float ACurveExtremity = 0.1996;  // sigma
 float peakPos = 1;                // mu
-float AMinAmount = 0.235;         // kappa
+float AMinAmount = 0.24;         // kappa
 
 // i have no idea what im doing
 float AccelSmoothingFunc(int time) {  // returns a multiplier 0 to 1 based on time
@@ -112,8 +116,8 @@ float AccelSmoothingFunc(int time) {  // returns a multiplier 0 to 1 based on ti
 }  // function graphed here: [https://www.desmos.com/calculator/y0fwlh6j47]
 
 
-float linearHarshness = 0.2;  // g on graph
-float SCurveExtremity = 4.7;  // h on graph
+float linearHarshness = 0.6;  // g on graph
+float SCurveExtremity = 5.3;  // h on graph
 
 // i now have some idea what im doing
 float StickSmoothingFunc(float stickVal) {
@@ -122,8 +126,6 @@ float StickSmoothingFunc(float stickVal) {
 
   return (stickVal * (powf(e, linearExponent) + ((1 - powf(e, linearExponent)) * powf(e, curveExponent))));
 }  // function graphed here: [https://www.desmos.com/calculator/ti4hn57sa7]
-
-
 
 #pragma endregion
 
@@ -172,7 +174,7 @@ int pageRangeFinder(int index) {  // calculates which page(s) a
 
   return startingPage;
 }
-
+ 
 
 void PrintToController(std::string prefix, double data, int numOfDigits, int row, int page) {  // handles single numbers
   if (currentPage == page && (globalTimer % 9 == (row * 3))) {
@@ -648,7 +650,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
     int lateralOutput = AccelSmoothingFunc(LAccelTime) * XStickPercent;
 
-    float rotationalMult = ((-0.004 * powf(lateralOutput, 2)) + (-0.2 * lateralOutput) + 100) / 100;
+    float rotationalMult = ((-0.002 * powf(lateralOutput, 2)) + (-0.2 * lateralOutput) + 100) / 100;
     // graphed and explained here: [https://www.desmos.com/calculator/03mizqcj4f]
 
     int rotationalOutput = (rotationalMult * AccelSmoothingFunc(RAccelTime) * YStickPercent);  // ((100 - abs(lateralOutput)) / 100)
@@ -1264,6 +1266,7 @@ void autonomous() {
       if (globalTimer % 11) {
         MainControl.clear();
       }
+
       PrintToController("Out of bounds", 0, 0, 1, 1);
 
       globalTimer++;
@@ -1283,7 +1286,8 @@ void autonomous() {
       WingPL.set_value(nextCommand.at(4));
       WingPR.set_value(nextCommand.at(4));
 
-      minStepChangeTimeStamp = globalTimer + nextCommand.at(5);
+
+      minStepChangeTimeStamp = globalTimer + GreaterOf(nextCommand.at(5), minPrintingDelay);
       // current time plus step end delay = min time at which step can end
 
       autonStep++;
@@ -1294,14 +1298,17 @@ void autonomous() {
     // diagnostics section  |  [2] AutRoute - 1
     int startingPage = pageRangeFinder(2);
 
+    const float heading = std::fmod(Inertial.get_heading(), 360.0f);
+    const float currHeading = (heading > 180) ? (heading - 360) : heading;
+
     PrintToController("Step: ", autonStep, 2, 0, startingPage);
     PrintToController("DesDist: ", desiredDist, 1, 1, startingPage);
     PrintToController("DesHead: ", desiredHeading, 3, 2, startingPage);
 
 
-    PrintToController("Heading: ", isCurrStepComplete, 1, 0, startingPage + 1);
-    PrintToController("ErrorH: ", globalTimer - minStepChangeTimeStamp, 4, 1, startingPage + 1);
-    PrintToController("Time: ", (globalTimer / ticksPerSec), 3, 2, startingPage + 1);
+    PrintToController("OHeading: ", heading, 4, 0, startingPage + 1);
+    PrintToController("RHeading: ", currHeading, 4, 1, startingPage + 1);
+    PrintToController("ErrorH: ", proportionalErrorR, 3, 2, startingPage + 1);
 
     PrintToController("FWingsOut?: ", nextCommand.at(4), 1, 0, startingPage + 2);
     PrintToController("FArmPos: ", ((nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos), 1, 1, startingPage + 2);
