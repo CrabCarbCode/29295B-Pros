@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "Drivestuff",
+    "project_name": "DriveTune",
     "target": "v5",
     "templates": {
       "kernel": {
@@ -309,7 +309,7 @@
       }
     },
     "upload_options": {
-      "slot": 3,
+      "slot": 2,
       "description": "choosy",
       "icon": "X",
       "after": "none"
