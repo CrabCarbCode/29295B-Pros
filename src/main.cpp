@@ -58,7 +58,7 @@ int mStartPosR;
 int globalTimer = 0;
 const int ticksPerSec = 50;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / ticksPerSec;
-int minPrintingDelay = (ticksPerSec / tickDeltaTime) + 0.5; //ticksPerSec / tickDeltaTime
+int minPrintingDelay = (ticksPerSec / tickDeltaTime) + 0.5;  // ticksPerSec / tickDeltaTime
 
 const float degPerCM = (360 / (4.1875 * Pi * 2.54)) * (84.0f / 36.0);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/") * gear ratio
 
@@ -103,7 +103,7 @@ const bool IsWithinRange(float num, float lowerBound, float upperBound) { return
 
 // variables which control the shape/range of the acceleratory function
 float ACurveExtremity = 0.1996;  // sigma
-float peakPos = 1;                // mu
+float peakPos = 1;               // mu
 float AMinAmount = 0.24;         // kappa
 
 // i have no idea what im doing
@@ -174,7 +174,7 @@ int pageRangeFinder(int index) {  // calculates which page(s) a
 
   return startingPage;
 }
- 
+
 
 void PrintToController(std::string prefix, double data, int numOfDigits, int row, int page) {  // handles single numbers
   if (currentPage == page && (globalTimer % 9 == (row * 3))) {
@@ -393,11 +393,11 @@ bool AutonPID(bool isPrinting) {
   if (autonPIDIsEnabled) {  // toggle so the PID can be disabled while placed on a separate thread
     // sets currHeading from -180 < h < 180, meaning we turn the correct direction from error
     const float absHeading = fabs(std::fmod(Inertial.get_heading(), 360.0f));
-    const float currHeading = (absHeading > 180) ? absHeading - 360 : absHeading;    
+    const float currHeading = (absHeading > 180) ? absHeading - 360 : absHeading;
 
     const float absDesHead = std::fmod(desiredHeading, 360.0f);
-    const float desHead = (absDesHead > 180) ? absDesHead - 360 : absDesHead; 
-    
+    const float desHead = (absDesHead > 180) ? absDesHead - 360 : absDesHead;
+
 
     ///////////////////////////////////////
     //////        Lateral PID        //////
@@ -422,7 +422,7 @@ bool AutonPID(bool isPrinting) {
     //////      Rotational PID       //////
     ///////////////////////////////////////
 
-    proportionalErrorR = rP * (desHead - currHeading);       // proportional error
+    proportionalErrorR = rP * (desHead - currHeading);              // proportional error
     derivativeErrorR = rD * (proportionalErrorR - previousErrorR);  // derivative of error
 
     // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
@@ -600,7 +600,7 @@ int minStepChangeTimeStamp;
 
 vector<float> autonCommands[50];
 
-std::array<int, 6> ReadAutonStep(int currStep) {
+std::array<int, 6> ReadAutonStep(int currStep) {  // this entire function is kinda unneccessary but it looks nice
   vector<float> currCommand = autonCommands[currStep];
 
   int desDistCM = currCommand.at(0);
@@ -759,17 +759,14 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
   }
 
   if (MainControl.get_digital(DIGITAL_L1)) {
-
     FlywheelM.move_velocity(-2 * maxFlywheelSpeed);
 
   } else if (MainControl.get_digital(DIGITAL_R1)) {
-
     FlywheelM.move_velocity(2 * maxFlywheelSpeed);
 
   } else {
     FlywheelM.move_velocity(0);
   }
-
 }
 
 
@@ -985,15 +982,56 @@ int totalNumOfCommands;
 void skillsAuton() {
   // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
   // wingsOut(bool), delay(seconds)]
+  // wings: 0 = none, 1 = both, 2 = right, 3 = left
 
-  autonCommands[0] = {0, 0, 0, 0, 0, 0}; 
-  autonCommands[1] = {-53, 0, 0, 0, 0, 0}; 
-  autonCommands[2] = {0, -45, 0, 0, 0, 0}; 
-  autonCommands[3] = {-30, 0, 0, 0, 0, 0}; 
-  autonCommands[4] = {35, 0, 0, 0, 0, 0}; 
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};      // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
+  autonCommands[1] = {-53, 0, 0, 0, 0, 0};    // back along the match loading bar
+  autonCommands[2] = {0, 45, 0, 0, 0, 0};     // turn so back faces net [distance]***
+  autonCommands[3] = {-30, -5, 0, 0, 0, 0};   // ram triballs under net
+  autonCommands[4] = {30, 0, 0, 0, 0, 0};     // pull out of net, almost to match-load bar
+  autonCommands[5] = {0, -90, 0, 0, 0, 0};    // turn 90 to face target (close net corner)
+  autonCommands[6] = {-10, 0, 3, 0, 0, 0};    // drive back to barely touch bar [distance]***, raise arm
+  autonCommands[7] = {0, 0, 0, 90, 0, 20};    // match load, 20 seconds?
+  autonCommands[8] = {10, 0, 1, 0, 0, 0};     // fwd from match load bar
+  autonCommands[9] = {0, -130, 0, 0, 0, 0};   // turn so back is towards gutter
+  autonCommands[10] = {-65, 0, 0, 0, 0, 0};   // drive into mouth of gutter
+  autonCommands[11] = {0, -45, 0, 0, 0, 0};   // turn to face gutter
+  autonCommands[12] = {-210, 0, 0, 0, 0, 0};  // drive down length of gutter
+  autonCommands[13] = {0, -45, 0, 0, 2, 0};   // open right wing to clear ML corner, turn towards net
+  autonCommands[14] = {-60, 0, 0, 0, 2, 0};   // drive bckwds past ML bar
+  autonCommands[15] = {0, -45, 0, 0, 0, 0};   // close wings, turn to face net
+  autonCommands[16] = {-40, 0, 0, 0, 0, 0};   // ram balls into bar
+  autonCommands[17] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
+  autonCommands[18] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
+  autonCommands[19] = {35, 0, 0, 0, 0, 0};    // pull out of net
+  autonCommands[20] = {0, 90, 0, 0, 0, 0};    // turn to face middle bar
+  autonCommands[21] = {80, 0, 0, 0, 0, 0};    // drive almost up to middle bar
+  autonCommands[22] = {0, 140, 0, 0, 1, 0};   // open wings, turn to face net at angle
+  autonCommands[23] = {75, 0, 0, 0, 1, 0};    // ram orbs into net
+  autonCommands[24] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out) (close left wing to avoid pushing triballs away from net)
+  autonCommands[25] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in)
+  autonCommands[26] = {-75, 0, 0, 0, 0, 0};   // close wings, back up
+  autonCommands[27] = {0, -50, 0, 0, 0, 0};   // turn to be in line with middle bar
+  autonCommands[28] = {50, 0, 0, 0, 3, 0};    // open wings ( only left wing would be nice, should implement), drive forward
+  autonCommands[29] = {0, 130, 0, 0, 3, 0};   // turn to be facing net (angled towards middle)
+  autonCommands[30] = {85, 0, 0, 0, 1, 0};    // ram orbs into net, open both wings
+  autonCommands[31] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out), (close left wing to avoid pushing triballs away from net)
+  autonCommands[32] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in),
+  autonCommands[33] = {-65, 0, 0, 0, 0, 0};   // close wings, back up most of the way
+  autonCommands[34] = {0, -115, 0, 0, 0, 0};  // turn to be facing corner, more towards gutter
+  autonCommands[35] = {45, 0, 0, 0, 0, 0};    // drive towards corner
+  autonCommands[36] = {0, -50, 0, 0, 0, 0};   // turn so back is facing net
+  autonCommands[37] = {-45, 0, 0, 0, 1, 0};   // open wings, move along ML bar
+  autonCommands[38] = {0, 45, 0, 0, 0, 0};    // close wings, turn back directly towards net
+  autonCommands[39] = {-30, 0, 0, 0, 0, 0};   // ram orbs into net
+  autonCommands[40] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
+  autonCommands[41] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
+  autonCommands[42] = {30, 0, 0, 0, 0, 0};    // move away
+
+
   // samich yummmmmmmmmy
 
-  totalNumOfCommands = 5;
+  totalNumOfCommands = 5;  // manual verification that the num of steps is correct (last num in array + 1)
   autonCommands->resize(totalNumOfCommands);
 }
 
@@ -1065,6 +1103,32 @@ void testAuton() {
 
 #pragma endregion
 
+// PID tunings
+void setPIDTunings(bool closeRange) {
+  switch (closeRange) {
+    case 0:
+      lP = 0.65;
+      lD = 0.25;
+      lI = 0.35;
+      lOutput = 1.9;
+
+      rP = 0.80;
+      rD = 0.55;
+      rI = 1.70;
+      rOutput = 2.0;
+      break;
+    case 1:
+      lP = 0.45;
+      lD = 0.20;
+      lI = 0.40;
+      lOutput = 1.0;
+
+      rP = 0.55;
+      rD = 0.30;
+      rI = 0.95;
+      rOutput = 1.0;
+  }
+}
 
 #pragma region printingConfigs
 
@@ -1241,7 +1305,6 @@ void autonomous() {
 
 
   while (globalTimer < maxiumAutonTime) {
-
     const float heading = std::fmod(Inertial.get_heading(), 360.0f);
     const float currHeading = (heading > 180) ? (heading - 360) : heading;
 
@@ -1256,7 +1319,6 @@ void autonomous() {
     bool isCurrStepComplete = AutonPID(true);
 
     if ((autonStep + 1) == totalNumOfCommands) {
-
       currentPage = 1;
       // temp. kills the program if auton route is complete
 
@@ -1277,22 +1339,46 @@ void autonomous() {
 
 
     } else if ((MainControl.get_digital_new_press(DIGITAL_X)) && globalTimer > minStepChangeTimeStamp) {  // || isCurrStepComplete
+      // ON DEBUG MODE, PRESS X TO CHANGE STEPS.
 
       desiredDist = nextCommand.at(0) * degPerCM;
       desiredHeading += nextCommand.at(1);
 
+      if (nextCommand.at(0) < 50 || nextCommand.at(1) < 90) {  // calling the vector's subvalues multiple times is bad practice
+        // i do not care atm (its mostly negligible since it isn't in the main loop)
+        setPIDTunings(true);
+      } else {
+        setPIDTunings(false);
+      }
+
       flystickArmPos = (nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos;
       flywheelSpeed = nextCommand.at(3);
 
-      WingPL.set_value(nextCommand.at(4));
-      WingPR.set_value(nextCommand.at(4));
-
+      switch (nextCommand.at(4)) {
+        case 0:  // no out all in
+          WingPL.set_value(false);
+          WingPR.set_value(false);
+          break;
+        case 1:  // all out no in
+          WingPL.set_value(true);
+          WingPR.set_value(true);
+          break;
+        case 2:  // 2 = right out left in
+          WingPL.set_value(false);
+          WingPR.set_value(true);
+          break;
+        case 3:  // 3 = left out right in
+          WingPL.set_value(true);
+          WingPR.set_value(false);
+          break;
+      }
 
       minStepChangeTimeStamp = globalTimer + GreaterOf(nextCommand.at(5), minPrintingDelay);
       // current time plus step end delay = min time at which step can end
 
       autonStep++;
       nextCommand = ReadAutonStep(autonStep);
+      delay(tickDeltaTime * minPrintingDelay);
     }
 
 
@@ -1336,8 +1422,6 @@ void opcontrol() {
   userControlPrinting();
 
   while (true) {
-
-
     DrivingControl(true);
     WingsControl();
     FlystickControl(false);
