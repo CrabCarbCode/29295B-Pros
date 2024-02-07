@@ -46,7 +46,7 @@ This is my code, and thus it is my god given right to use it as a diary. ignore 
 bool twoStickMode = true;  // toggles single or float stick drive
 const int deadband = 3;    // if the controller sticks are depressed less than deadband%, input will be ignored (to combat controller drift)
 
-const float autonDriveMult = 0.2;
+const float autonDriveMult = 1.0;
 // unused variable to increase / decrease speed of autonomous driving. just make a good drivetrain lol you'll be fine
 
 const float Pi = 3.14159265358;
@@ -60,9 +60,9 @@ const int ticksPerSec = 50;  // the number of 'ticks' in one second
 const int tickDeltaTime = 1000 / ticksPerSec;
 int minPrintingDelay = (ticksPerSec / tickDeltaTime) + 0.5; //ticksPerSec / tickDeltaTime
 
-const float degPerCM = (360 / (4.1875 * Pi * 2.54)) * (36 / 84);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/") * gear ratio
+const float degPerCM = (360 / (4.1875 * Pi * 2.54)) * (84.0f / 36.0);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/") * gear ratio
 
-int maxFlywheelSpeed = 95;  // flywheel speed as a percent
+int maxFlywheelSpeed = 85;  // flywheel speed as a percent
 int flystickArmPos = 0;     // flystick starts at kickstand position
 
 int lastUpTimestamp = 0;
@@ -344,17 +344,17 @@ int desiredHeading;
 
 // tuning coefficients
 
-float lP = 2.9;
-float lD = 1.0;
-float lI = 0.0;
+float lP = 0.65;
+float lD = 0.25;
+float lI = 0.35;
 
-float lOutput = 1.6;
+float lOutput = 1.9;
 
-float rP = 1.2;
-float rD = 0.5;
-float rI = 0.0;
+float rP = 0.80;
+float rD = 0.55;
+float rI = 1.70;
 
-float rOutput = 2.7;
+float rOutput = 2.0;
 
 int integralBoundL = 10 * degPerCM;
 int integralBoundR = 5;
@@ -392,8 +392,12 @@ int avgMotorPosition = 0;
 bool AutonPID(bool isPrinting) {
   if (autonPIDIsEnabled) {  // toggle so the PID can be disabled while placed on a separate thread
     // sets currHeading from -180 < h < 180, meaning we turn the correct direction from error
-    const float heading = Inertial.get_heading();  // std::fmod(Inertial.get_heading(), 360.0f);
-    const float currHeading = (heading > 180) ? (heading - 360) : heading;
+    const float absHeading = fabs(std::fmod(Inertial.get_heading(), 360.0f));
+    const float currHeading = (absHeading > 180) ? absHeading - 360 : absHeading;    
+
+    const float absDesHead = std::fmod(desiredHeading, 360.0f);
+    const float desHead = (absDesHead > 180) ? absDesHead - 360 : absDesHead; 
+    
 
     ///////////////////////////////////////
     //////        Lateral PID        //////
@@ -407,7 +411,7 @@ bool AutonPID(bool isPrinting) {
     // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
     if (fabs(proportionalErrorL) > integralBoundL) {
-      integralErrorL += lI * (proportionalErrorL);
+      integralErrorL += lI * (derivativeErrorL);
     } else {
       integralErrorL = 0;
     }
@@ -418,13 +422,13 @@ bool AutonPID(bool isPrinting) {
     //////      Rotational PID       //////
     ///////////////////////////////////////
 
-    proportionalErrorR = rP * (desiredHeading - currHeading);       // proportional error
+    proportionalErrorR = rP * (desHead - currHeading);       // proportional error
     derivativeErrorR = rD * (proportionalErrorR - previousErrorR);  // derivative of error
 
     // filters out the integral at short ranges (no I if |error| < constant lower limit, eg. 10cm),
     // allowing it to be useful when needed without overpowering other elements
     if (fabs(proportionalErrorR) > integralBoundR) {
-      integralErrorR += rI * (proportionalErrorR);
+      integralErrorR += rI * (derivativeErrorR);
     } else {
       integralErrorR = 0;
     }
@@ -477,11 +481,13 @@ float previousErrorF = 0;  // previous error variable for the flystick arm
 bool allowAdjust = false;
 
 void AdjustFlystick(bool isPrinting, bool isMoving) {
-  const float fP = 0.7;
-  const float fD = 0.8;
-  const float fO = 1.7;
+  const float fP = 0.8;
+  const float fD = 0.4;
+  const float fO = 1.5;
 
   int deadzoneF = 0.3;
+
+  int fullBackPos = 41;
 
   // responsible for changing/maintaining the position of the flystick using a PD controller, as the integral men live in my walls
 
@@ -497,19 +503,19 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
       desiredRotation = defaultArmPos;
       break;
     case 1:
-      desiredRotation = 130;
+      desiredRotation = 210;
       break;
     case 2:
-      desiredRotation = 160;
+      desiredRotation = 205;
       break;
     case 3:
-      desiredRotation = 215;
+      desiredRotation = 128;
       break;
     case 4:
-      desiredRotation = 265;
+      desiredRotation = 85;
       break;
     case 5:
-      desiredRotation = 305;
+      desiredRotation = fullBackPos;
       break;
   }
 
@@ -723,8 +729,8 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
 #pragma region AuxiliaryFunctions
 
-bool flywheelFWD = true;  // flywheel is inherently inverted so this reads as the opposite of what it does
-bool flywheelOn = false;
+
+bool isInIntakeMode = true;
 
 void FlystickControl(bool isPrinting) {  // controls driver interaction with the flystick
 
@@ -741,23 +747,29 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
   }
 
   if (MainControl.get_digital_new_press(DIGITAL_B)) {
-    flywheelFWD = !flywheelFWD;
-    FlywheelM.set_reversed(flywheelFWD);
+    isInIntakeMode = !isInIntakeMode;
+    switch (isInIntakeMode) {
+      case 0:
+        maxFlywheelSpeed = 35;
+        break;
+      case 1:
+        maxFlywheelSpeed = 88;
+        break;
+    }
   }
 
+  if (MainControl.get_digital(DIGITAL_L1)) {
 
-  if ((globalTimer - lastSpinTimestamp >= cooldown) && MainControl.get_digital_new_press(DIGITAL_A)) {
-    flywheelOn = !flywheelOn;
+    FlywheelM.move_velocity(-2 * maxFlywheelSpeed);
+
+  } else if (MainControl.get_digital(DIGITAL_R1)) {
+
+    FlywheelM.move_velocity(2 * maxFlywheelSpeed);
+
+  } else {
+    FlywheelM.move_velocity(0);
   }
 
-  switch (flywheelOn) {
-    case 0:
-      FlywheelM.move_velocity(0);
-      break;
-    case 1:
-      FlywheelM.move_velocity(maxFlywheelSpeed * 2);
-      break;
-  }
 }
 
 
@@ -807,18 +819,18 @@ void WingsControl() {  // controls... wings
 ////                                                                                                                 ////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-float adjustFactor = 0.1;  // the increment by which PID variables change during manual tuning
-bool isTuningTurns = false;
+float adjustFactor = 0.05;  // the increment by which PID variables change during manual tuning
+bool isTuningTurns = true;
 
 void tunePID(bool isPrinting) {  // turns or oscilates repeatedly to test and tune the PID, allowing real-time tuning and adjustments
 
-  lP = 1.0;
+  lP = 0.5;
   lD = 0.0;
   lI = 0.0;
 
   lOutput = 1.0;
 
-  rP = 1.0;
+  rP = 0.5;
   rD = 0.0;
   rI = 0.0;
 
@@ -878,13 +890,13 @@ void tunePID(bool isPrinting) {  // turns or oscilates repeatedly to test and tu
 
       int startPage = pageRangeFinder(8);
 
-      PrintToController("PVar: %d", (isTuningTurns ? rP : lP) * 10, 4, 0, startPage);
-      PrintToController("IVar: %d", (isTuningTurns ? rI : lI) * 10, 4, 1, startPage);
-      PrintToController("DVar: %d", (isTuningTurns ? rD : lD) * 10, 4, 2, startPage);
+      PrintToController("PVar: ", (isTuningTurns ? rP : lP), 4, 0, startPage);
+      PrintToController("IVar: ", (isTuningTurns ? rI : lI), 4, 1, startPage);
+      PrintToController("DVar: ", (isTuningTurns ? rD : lD), 4, 2, startPage);
 
-      PrintToController("Turning?: %d", isTuningTurns, 1, 0, startPage + 1);
-      PrintToController("lOutput: %d", lOutput, 1, 5, startPage + 1);
-      PrintToController("rOutput: %d", rOutput, 2, 5, startPage + 1);
+      PrintToController("Turning?: ", isTuningTurns, 1, 0, startPage + 1);
+      PrintToController("lOutput: ", lOutput, 2, 1, startPage + 1);
+      PrintToController("rOutput: ", rOutput, 2, 2, startPage + 1);
     }
 
 
@@ -974,31 +986,14 @@ void skillsAuton() {
   // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
   // wingsOut(bool), delay(seconds)]
 
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};  // null start, copy/paste to make new step and KEEP AS POSITION 0
-  autonCommands[1] = {0, 0, 0, 0, 0, 0};
-  autonCommands[2] = {0, 0, 3, 100, 0, 35};    // Match loads for 35 seconds
-  autonCommands[3] = {20, 0, 0, -1, 0, 0};     // Move forward in preperation for turn
-  autonCommands[4] = {0, 90, 0, -1, 0, 0};     // 90 degree turn right to align robot for triball scoring in net
-  autonCommands[5] = {-65, 0, 1, 0, 0, 0};     // push preload triballs towards goal
-  autonCommands[6] = {20, 0, 0, 0, 0, 0};      // move back (preparing for 2nd push into goal)
-  autonCommands[7] = {-25, 0, 0, 0, 0, 0};     // push triballs into goal
-  autonCommands[8] = {110, 0, 0, 0, 0, 0};     // move towardsd wall, triballs are scored, time to try and score triballs in oposite goal
-  autonCommands[9] = {0, -45, 0, 0, 0, 0};     // turn to be parallel with the arena, facing our colors low hang bar
-  autonCommands[10] = {200, 0, 0, 0, 0, 0};    // move from our side to the other side of the feild
-  autonCommands[11] = {0, -45, 0, 0, 0, 0};    // turn towards the net
-  autonCommands[12] = {70, 0, 0, 0, 0, 0};     // push triballs into the net
-  autonCommands[13] = {0, -45, 0, 0, 0, 0};    // turn to face net
-  autonCommands[14] = {-20, 0, 0, 0, 0, 0};    // move back to be in position to push triballs in the side of the net again
-  autonCommands[15] = {45, 0, 0, 0, 0, 0};     // push triballs into net
-  autonCommands[16] = {0, -90, 0, 0, 0, 0};    // turn away from the net to get into position to push the front
-  autonCommands[17] = {70, 0, 0, 0, 0, 0};     // drive to get ahead of goal net
-  autonCommands[18] = {0, 45, 0, 0, 0, 0};     // turn to be perpendicular to match load zone
-  autonCommands[19] = {15, 0, 0, 0, 0, 0};     // position ourselves more in front of the net
-  autonCommands[20] = {0, 112.5, 0, 0, 0, 0};  // turn to face front of net
-  autonCommands[21] = {60, 0, 0, 0, 0, 0};     // push triballs into front of net
+  autonCommands[0] = {0, 0, 0, 0, 0, 0}; 
+  autonCommands[1] = {-53, 0, 0, 0, 0, 0}; 
+  autonCommands[2] = {0, -45, 0, 0, 0, 0}; 
+  autonCommands[3] = {-30, 0, 0, 0, 0, 0}; 
+  autonCommands[4] = {35, 0, 0, 0, 0, 0}; 
   // samich yummmmmmmmmy
 
-  totalNumOfCommands = 22;
+  totalNumOfCommands = 5;
   autonCommands->resize(totalNumOfCommands);
 }
 
@@ -1215,7 +1210,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
 
 void autonomous() {
-  selectedRoute = 5;
+  selectedRoute = 1;
   autonPrinting();
 
   int maxiumAutonTime = 15 * ticksPerSec;  // sets the default auton kill time to 15 seconds
@@ -1246,6 +1241,10 @@ void autonomous() {
 
 
   while (globalTimer < maxiumAutonTime) {
+
+    const float heading = std::fmod(Inertial.get_heading(), 360.0f);
+    const float currHeading = (heading > 180) ? (heading - 360) : heading;
+
     lcdControl();  // allows the LCD screen to show multiple pages of diagnostics, press left/right arrows to change pages
 
     FlywheelM.move_velocity(flywheelSpeed * 2);  // spins the flywheel at the desired speed (input as a percent)
@@ -1257,6 +1256,8 @@ void autonomous() {
     bool isCurrStepComplete = AutonPID(true);
 
     if ((autonStep + 1) == totalNumOfCommands) {
+
+      currentPage = 1;
       // temp. kills the program if auton route is complete
 
       FullDrive.move_velocity(0);
@@ -1277,7 +1278,7 @@ void autonomous() {
 
     } else if ((MainControl.get_digital_new_press(DIGITAL_X)) && globalTimer > minStepChangeTimeStamp) {  // || isCurrStepComplete
 
-      desiredDist += nextCommand.at(0) * degPerCM;
+      desiredDist = nextCommand.at(0) * degPerCM;
       desiredHeading += nextCommand.at(1);
 
       flystickArmPos = (nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos;
@@ -1298,13 +1299,9 @@ void autonomous() {
     // diagnostics section  |  [2] AutRoute - 1
     int startingPage = pageRangeFinder(2);
 
-    const float heading = std::fmod(Inertial.get_heading(), 360.0f);
-    const float currHeading = (heading > 180) ? (heading - 360) : heading;
-
     PrintToController("Step: ", autonStep, 2, 0, startingPage);
     PrintToController("DesDist: ", desiredDist, 1, 1, startingPage);
     PrintToController("DesHead: ", desiredHeading, 3, 2, startingPage);
-
 
     PrintToController("OHeading: ", heading, 4, 0, startingPage + 1);
     PrintToController("RHeading: ", currHeading, 4, 1, startingPage + 1);
@@ -1328,25 +1325,24 @@ void autonomous() {
 
 void opcontrol() {
   // competition_initialize();
-  // autonomous();
+  autonomous();
 
   // tunePID(true);
 
-  tuneDrive(true);
+  // tuneDrive(true);
 
 
 
   userControlPrinting();
 
-  flywheelFWD = true;
-
-  flywheelOn = false;
-
   while (true) {
+
+
     DrivingControl(true);
     WingsControl();
     FlystickControl(false);
     AdjustFlystick(false, true);
+
     lcdControl();
 
     globalTimer++;
