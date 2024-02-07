@@ -396,7 +396,7 @@ bool AutonPID(bool isPrinting) {
     const float currHeading = (absHeading > 180) ? absHeading - 360 : absHeading;
 
     const float absDesHead = std::fmod(desiredHeading, 360.0f);
-    const float desHead = (absDesHead > 180) ? absDesHead - 360 : absDesHead;
+    const float desHead = (absDesHead > 180) ? std::fmod((absDesHead - 360), 180) : std::fmod((absDesHead), 180);
 
 
     ///////////////////////////////////////
@@ -731,6 +731,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
 
 
 bool isInIntakeMode = true;
+bool flywheelToggled = false;
 
 void FlystickControl(bool isPrinting) {  // controls driver interaction with the flystick
 
@@ -758,6 +759,10 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
     }
   }
 
+   if (MainControl.get_digital_new_press(DIGITAL_A)) {
+    flywheelToggled = !flywheelToggled;
+  }
+
   if (MainControl.get_digital(DIGITAL_L1)) {
     FlywheelM.move_velocity(-2 * maxFlywheelSpeed);
 
@@ -765,7 +770,9 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
     FlywheelM.move_velocity(2 * maxFlywheelSpeed);
 
   } else {
-    FlywheelM.move_velocity(0);
+    if (flywheelToggled) {
+      FlywheelM.move_velocity(2 * maxFlywheelSpeed);
+    } else {FlywheelM.move_velocity(0);}
   }
 }
 
@@ -871,11 +878,11 @@ void tunePID(bool isPrinting) {  // turns or oscilates repeatedly to test and tu
 
     // flips 180 or drives 1m in alternating directions at regular intervals
     if (globalTimer % (6 * ticksPerSec) < (3 * ticksPerSec)) {
-      desiredDist = isTuningTurns ? 0 : 50 * degPerCM;
-      desiredHeading = isTuningTurns ? 90 : 0;
+      desiredDist = isTuningTurns ? 0 : 15 * degPerCM;
+      desiredHeading = isTuningTurns ? 25 : 0;
     } else {
-      desiredDist = isTuningTurns ? 0 : -50 * degPerCM;
-      desiredHeading = isTuningTurns ? -90 : 0;
+      desiredDist = isTuningTurns ? 0 : -15 * degPerCM;
+      desiredHeading = isTuningTurns ? -25 : 0;
     }
 
 
@@ -984,54 +991,57 @@ void skillsAuton() {
   // wingsOut(bool), delay(seconds)]
   // wings: 0 = none, 1 = both, 2 = right, 3 = left
 
+  //done up to 19, needs turn reversals after 12
+
   autonCommands[0] = {0, 0, 0, 0, 0, 0};      // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
-  autonCommands[1] = {-53, 0, 0, 0, 0, 0};    // back along the match loading bar
-  autonCommands[2] = {0, 45, 0, 0, 0, 0};     // turn so back faces net [distance]***
-  autonCommands[3] = {-30, -5, 0, 0, 0, 0};   // ram triballs under net
-  autonCommands[4] = {30, 0, 0, 0, 0, 0};     // pull out of net, almost to match-load bar
-  autonCommands[5] = {0, -90, 0, 0, 0, 0};    // turn 90 to face target (close net corner)
-  autonCommands[6] = {-10, 0, 3, 0, 0, 0};    // drive back to barely touch bar [distance]***, raise arm
-  autonCommands[7] = {0, 0, 0, 90, 0, 20};    // match load, 20 seconds?
+  autonCommands[1] = {-55, 0, 0, 0, 0, 0};    // back along the match loading bar
+  autonCommands[2] = {-10, 45, 0, 0, 0, 0};     // turn so back faces net [distance]***
+  autonCommands[3] = {-30, 0, 0, 0, 0, 0};   // ram triballs under net
+  autonCommands[4] = {40, 0, 0, 0, 0, 0};     // pull out of net, almost to match-load bar
+  autonCommands[5] = {5, -90, 0, 0, 0, 0};    // turn 90 to face target (close net corner)
+  autonCommands[6] = {-14, 0, 3, 0, 0, 0};    // drive back to barely touch bar [distance]***, raise arm
+  autonCommands[7] = {0, 0, 0, 90, 0, 1};    // match load, 20 seconds?
   autonCommands[8] = {10, 0, 1, 0, 0, 0};     // fwd from match load bar
   autonCommands[9] = {0, -130, 0, 0, 0, 0};   // turn so back is towards gutter
   autonCommands[10] = {-65, 0, 0, 0, 0, 0};   // drive into mouth of gutter
-  autonCommands[11] = {0, -45, 0, 0, 0, 0};   // turn to face gutter
-  autonCommands[12] = {-210, 0, 0, 0, 0, 0};  // drive down length of gutter
-  autonCommands[13] = {0, -45, 0, 0, 2, 0};   // open right wing to clear ML corner, turn towards net
-  autonCommands[14] = {-60, 0, 0, 0, 2, 0};   // drive bckwds past ML bar
-  autonCommands[15] = {0, -45, 0, 0, 0, 0};   // close wings, turn to face net
-  autonCommands[16] = {-40, 0, 0, 0, 0, 0};   // ram balls into bar
-  autonCommands[17] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
-  autonCommands[18] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
-  autonCommands[19] = {35, 0, 0, 0, 0, 0};    // pull out of net
-  autonCommands[20] = {0, 90, 0, 0, 0, 0};    // turn to face middle bar
-  autonCommands[21] = {80, 0, 0, 0, 0, 0};    // drive almost up to middle bar
-  autonCommands[22] = {0, 140, 0, 0, 1, 0};   // open wings, turn to face net at angle
-  autonCommands[23] = {75, 0, 0, 0, 1, 0};    // ram orbs into net
-  autonCommands[24] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out) (close left wing to avoid pushing triballs away from net)
-  autonCommands[25] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in)
-  autonCommands[26] = {-75, 0, 0, 0, 0, 0};   // close wings, back up
-  autonCommands[27] = {0, -50, 0, 0, 0, 0};   // turn to be in line with middle bar
-  autonCommands[28] = {50, 0, 0, 0, 3, 0};    // open wings ( only left wing would be nice, should implement), drive forward
-  autonCommands[29] = {0, 130, 0, 0, 3, 0};   // turn to be facing net (angled towards middle)
-  autonCommands[30] = {85, 0, 0, 0, 1, 0};    // ram orbs into net, open both wings
-  autonCommands[31] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out), (close left wing to avoid pushing triballs away from net)
-  autonCommands[32] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in),
-  autonCommands[33] = {-65, 0, 0, 0, 0, 0};   // close wings, back up most of the way
-  autonCommands[34] = {0, -115, 0, 0, 0, 0};  // turn to be facing corner, more towards gutter
-  autonCommands[35] = {45, 0, 0, 0, 0, 0};    // drive towards corner
-  autonCommands[36] = {0, -50, 0, 0, 0, 0};   // turn so back is facing net
-  autonCommands[37] = {-45, 0, 0, 0, 1, 0};   // open wings, move along ML bar
-  autonCommands[38] = {0, 45, 0, 0, 0, 0};    // close wings, turn back directly towards net
-  autonCommands[39] = {-30, 0, 0, 0, 0, 0};   // ram orbs into net
-  autonCommands[40] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
-  autonCommands[41] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
-  autonCommands[42] = {30, 0, 0, 0, 0, 0};    // move away
-
+  autonCommands[11] = {-6, -120, 0, 0, 0, 0};   // turn to face gutter
+  autonCommands[12] = {105, 0, 0, 0, 0, 0};  // drive down length of gutter
+  autonCommands[13] = {91, 0, 0, 0, 0, 0};  // drive down length of gutter
+  autonCommands[14] = {0, -45, 0, 0, 2, 0};   // open right wing to clear ML corner, turn towards net
+  autonCommands[15] = {81, 0, 0, 0, 2, 0};   // drive bckwds past ML bar
+  autonCommands[16] = {10, -45, 0, 0, 0, 0};   // close wings, turn to face net
+  autonCommands[17] = {-20, 0, 0, 0, 0, 0};   // ram balls into bar
+  autonCommands[18] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
+  autonCommands[19] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
+  autonCommands[20] = {0, 94, 0, 0, 0, 0};    // pull out of net
+  autonCommands[21] = {40, 50, 0, 0, 0, 0};    // turn to face middle bar
+  autonCommands[22] = {40, 0, 0, 0, 0, 0};    // drive almost up to middle bar
+  autonCommands[23] = {0, 140, 0, 0, 1, 0};   // open wings, turn to face net at angle
+  autonCommands[24] = {75, 0, 0, 0, 1, 0};    // ram orbs into net
+  autonCommands[25] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out) (close left wing to avoid pushing triballs away from net)
+  autonCommands[26] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in)
+  autonCommands[27] = {-75, 0, 0, 0, 0, 0};   // close wings, back up
+  autonCommands[28] = {0, -50, 0, 0, 0, 0};   // turn to be in line with middle bar
+  autonCommands[29] = {50, 0, 0, 0, 3, 0};    // open wings ( only left wing would be nice, should implement), drive forward
+  autonCommands[30] = {0, 130, 0, 0, 3, 0};   // turn to be facing net (angled towards middle)
+  autonCommands[31] = {85, 0, 0, 0, 1, 0};    // ram orbs into net, open both wings
+  autonCommands[32] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out), (close left wing to avoid pushing triballs away from net)
+  autonCommands[33] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in),
+  autonCommands[34] = {-65, 0, 0, 0, 0, 0};   // close wings, back up most of the way
+  autonCommands[35] = {0, -115, 0, 0, 0, 0};  // turn to be facing corner, more towards gutter
+  autonCommands[36] = {45, 0, 0, 0, 0, 0};    // drive towards corner
+  autonCommands[37] = {0, -50, 0, 0, 0, 0};   // turn so back is facing net
+  autonCommands[38] = {-45, 0, 0, 0, 1, 0};   // open wings, move along ML bar
+  autonCommands[39] = {0, 45, 0, 0, 0, 0};    // close wings, turn back directly towards net
+  autonCommands[40] = {-30, 0, 0, 0, 0, 0};   // ram orbs into net
+  autonCommands[41] = {30, 0, 0, 0, 0, 0};    // re-ram pt.1 (out)
+  autonCommands[42] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
+  autonCommands[43] = {30, 0, 0, 0, 0, 0};    // move away
+/**/
 
   // samich yummmmmmmmmy
 
-  totalNumOfCommands = 5;  // manual verification that the num of steps is correct (last num in array + 1)
+  totalNumOfCommands = 44;  // manual verification that the num of steps is correct (last num in array + 1)
   autonCommands->resize(totalNumOfCommands);
 }
 
@@ -1118,15 +1128,15 @@ void setPIDTunings(bool closeRange) {
       rOutput = 2.0;
       break;
     case 1:
-      lP = 0.45;
-      lD = 0.20;
-      lI = 0.40;
+      lP = 0.70;
+      lD = 0.30;
+      lI = 0.45;
       lOutput = 1.0;
 
-      rP = 0.55;
-      rD = 0.30;
-      rI = 0.95;
-      rOutput = 1.0;
+      rP = 1.25;
+      rD = 0.40;
+      rI = 0.30;
+      rOutput = 2.9;
   }
 }
 
@@ -1282,7 +1292,7 @@ void autonomous() {
   switch (selectedRoute) {
     case 1:
       skillsAuton();
-      maxiumAutonTime = 60 * ticksPerSec;  // raises the kill time for skills auton to 60 seconds
+      maxiumAutonTime = 120 * ticksPerSec;  // raises the kill time for skills auton to 60 seconds
       break;
     case 2:
       offenceAuton();
@@ -1299,6 +1309,7 @@ void autonomous() {
       break;
   }
 
+  //autonStep = 13;
   desiredDist = 0;
   desiredHeading = 0;
   std::array<int, 6> nextCommand = {0, 0, 0, 0, 0, 0};
@@ -1341,7 +1352,7 @@ void autonomous() {
     } else if ((MainControl.get_digital_new_press(DIGITAL_X)) && globalTimer > minStepChangeTimeStamp) {  // || isCurrStepComplete
       // ON DEBUG MODE, PRESS X TO CHANGE STEPS.
 
-      desiredDist = nextCommand.at(0) * degPerCM;
+      desiredDist += nextCommand.at(0) * degPerCM;
       desiredHeading += nextCommand.at(1);
 
       if (nextCommand.at(0) < 50 || nextCommand.at(1) < 90) {  // calling the vector's subvalues multiple times is bad practice
@@ -1386,7 +1397,7 @@ void autonomous() {
     int startingPage = pageRangeFinder(2);
 
     PrintToController("Step: ", autonStep, 2, 0, startingPage);
-    PrintToController("DesDist: ", desiredDist, 1, 1, startingPage);
+    PrintToController("DesDist: ", desiredDist, 4, 1, startingPage);
     PrintToController("DesHead: ", desiredHeading, 3, 2, startingPage);
 
     PrintToController("OHeading: ", heading, 4, 0, startingPage + 1);
@@ -1413,7 +1424,7 @@ void opcontrol() {
   // competition_initialize();
   autonomous();
 
-  // tunePID(true);
+   //tunePID(true);
 
   // tuneDrive(true);
 
