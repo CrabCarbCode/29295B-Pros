@@ -63,7 +63,7 @@ int minPrintingDelay = (ticksPerSec / tickDeltaTime) + 0.5;  // ticksPerSec / ti
 const float degPerCM = (360 / (4.1875 * Pi * 2.54)) * (84.0f / 36.0);  // # of degrees per centimeter = 360 / (2Pir" * 2.54cm/") * gear ratio
 
 int maxFlywheelSpeed = 85;  // flywheel speed as a percent
-int flystickArmPos = 0;     // flystick starts at kickstand position
+int flystickArmPos = -1;    // flystick starts at kickstand position
 
 int lastUpTimestamp = 0;
 int lastDownTimestamp = 0;
@@ -479,6 +479,8 @@ bool AutonPID(bool isPrinting) {
 float previousErrorF = 0;  // previous error variable for the flystick arm
 
 bool allowAdjust = false;
+bool kickstandRetracted = false;
+int kickstandRetractedTimeStamp;
 
 void AdjustFlystick(bool isPrinting, bool isMoving) {
   const float fP = 0.8;
@@ -494,12 +496,12 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
   int desiredRotation;
   float armPos = ArmRot.get_angle() / 100;
 
-  if (flystickArmPos == 0) {  // kills the function if the arm is in kickstand mode or out of bounds
+  if (kickstandRetracted) {  // kills the function if the arm is in kickstand mode or out of bounds
     return;
   }
 
   switch (flystickArmPos) {
-    case 0:
+    case -1:
       desiredRotation = defaultArmPos;
       break;
     case 1:
@@ -507,6 +509,7 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
       break;
     case 2:
       desiredRotation = 205;
+      deadzoneF = 3;  // relax the deadzone for intakemode
       break;
     case 3:
       desiredRotation = 128;
@@ -519,6 +522,10 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
       break;
   }
 
+  if (timeSincePoint(kickstandRetractedTimeStamp) < 5) {
+    desiredRotation = defaultArmPos - 10;
+  }
+
   float currentErrorF = desiredRotation - armPos;
   float errorDerivativeF = currentErrorF - previousErrorF;
 
@@ -527,6 +534,8 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
   if (!isMoving) {  // return before the arm is allowed to move, prevents unwanted motion
     return;
   }
+
+
 
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
@@ -578,20 +587,7 @@ std::array<int, 2> ReadBopItOutputs(bool isPrinting) {
 
 
 
-struct AutonCommand {  // structure containing all neccessary data for an autonomous command
-  const float desiredDistInCM;
-  const float desiredHeading;
-  const int armPos;
-  const int flywheelSpeed;
-  const bool wingsOut;
-  const int endDelay;
-
-  const int targetSpeed;
-};
-
-
-
-const int stepChangeCooldown = ticksPerSec / 3;  // sets the minimum delay between auton steps
+const int stepChangeCooldown = ticksPerSec / 4;  // sets the minimum delay between auton steps
 
 // initializing data variables (used to track details of each step)
 int autonStep = 0;  // tracks which step of the auton the program is on
@@ -611,7 +607,7 @@ std::array<int, 6> ReadAutonStep(int currStep) {  // this entire function is kin
 
   bool wingsOut = currCommand.at(4);
 
-  int endDelayInTicks = ((currCommand.at(5) * ticksPerSec) > stepChangeCooldown) ? (currCommand.at(5) * ticksPerSec) : stepChangeCooldown;
+  int endDelayInTicks = currCommand.at(5) * ticksPerSec;
 
   return {desDistCM, desHead, flystickPos, flywheelSpeed, wingsOut, endDelayInTicks};
 }
@@ -632,7 +628,7 @@ int prevYStickPercent = 0;
 void DrivingControl(bool isPrinting) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
-    reverseDrive = (reverseDrive > 0) ? 1 : -1;
+    reverseDrive = (reverseDrive > 0) ? -1 : 1;
   }
 
   // taking the position of the sticks and appplying gradient diffusion to them. Check the StickSmoothingFunc graph for details
@@ -738,11 +734,19 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
   const int cooldown = 5;
 
   if (MainControl.get_digital_new_press(DIGITAL_UP) && flystickArmPos < maxflystickArmPos) {
+    if (!kickstandRetracted) {
+      kickstandRetractedTimeStamp = globalTimer;
+    }
+
     flystickArmPos++;
     lastUpTimestamp = globalTimer;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && flystickArmPos > 1) {
+  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (flystickArmPos > 1 || !kickstandRetracted)) {
+    if (!kickstandRetracted) {
+      kickstandRetractedTimeStamp = globalTimer;
+    }
+
     flystickArmPos--;
     lastDownTimestamp = globalTimer;
   }
@@ -751,12 +755,16 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
     isInIntakeMode = !isInIntakeMode;
     switch (isInIntakeMode) {
       case 0:
-        maxFlywheelSpeed = 35;
+        maxFlywheelSpeed = 55;
         break;
       case 1:
         maxFlywheelSpeed = 88;
         break;
     }
+  }
+
+  if (MainControl.get_digital_new_press(DIGITAL_L1)) {
+    maxFlywheelSpeed = -90;
   }
 
   if (MainControl.get_digital_new_press(DIGITAL_A)) {
@@ -947,7 +955,6 @@ void tuneDrive(bool isPrinting) {  // allows for user driving, with real time co
     DrivingControl(true);
 
 
-
     if (isPrinting) {  // [7] Drive Tune - 1
       if (!isPrintingList[7]) {
         isPrintingList[7] = true;
@@ -981,57 +988,56 @@ void tuneDrive(bool isPrinting) {  // allows for user driving, with real time co
 int totalNumOfCommands;
 
 void skillsAuton() {
-  // autonCommands[ autonStep ] = {[]} [lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%),
-  // wingsOut(bool), delay(seconds)]
+  // autonCommands[ autonStep ] = { latDist(cm), rotDist(degrees), armPos(1-5, 0 = no change), flywheelSpeed(%), wings[vvv], delay(sec) }
   // wings: 0 = none, 1 = both, 2 = right, 3 = left
 
   // done up to 19, needs turn reversals after 12
 
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};      // [null padding, [DO NOT REMOVE] start parallel to match loading bar, front facing wall
-  autonCommands[1] = {-55, 0, 3, 0, 0, 0};    // back along the match loading bar
-  autonCommands[2] = {-10, 45, 1, 0, 0, 0};   // turn so back faces net [distance]***
-  autonCommands[3] = {-30, 0, 0, 0, 0, 0};    // ram triballs under net
-  autonCommands[4] = {37, 0, 0, 0, 0, 0};     // pull out of net, almost to match-load bar
-  autonCommands[5] = {5, -90, 0, 0, 0, 0};    // turn 90 to face target (close net corner)
-  autonCommands[6] = {-8, -14, 3, 0, 0, 0};   // drive back to barely touch bar [distance]***, raise arm
-  autonCommands[7] = {0, 0, 0, 90, 0, 1};     // match load, 20 seconds?
-  autonCommands[8] = {10, 0, 0, 0, 0, 0};     // fwd from match load bar
-  autonCommands[9] = {0, -130, 0, 0, 0, 0};   // turn so back is towards gutter
-  autonCommands[10] = {82, 0, 0, 0, 0, 0};    // drive into mouth of gutter
-  autonCommands[11] = {16, -38, 0, 0, 0, 0};  // turn to face gutter
-  autonCommands[12] = {105, 0, 0, 0, 0, 0};   // drive down length of gutter
-  autonCommands[13] = {61, 0, 0, 0, 0, 0};    // drive down length of gutter
-  autonCommands[14] = {0, -45, 0, 0, 2, 0};   // open right wing to clear ML corner, turn towards net
-  autonCommands[15] = {61, 0, 0, 0, 2, 0};    // drive bckwds past ML bar
-  autonCommands[16] = {10, -45, 0, 0, 0, 0};  // close wings, turn to face net
-  autonCommands[17] = {20, 0, 0, 0, 0, 0};    // ram balls into bar
-  autonCommands[18] = {-30, 0, 0, 0, 0, 0};   // re-ram pt.1 (out)
-  autonCommands[19] = {30, 0, 0, 0, 0, 0};    // re-ram pt.2 (in)
-  autonCommands[20] = {-26, 0, 0, 0, 0, 0};   // pull out of net
-  autonCommands[21] = {0, 94, 0, 0, 0, 0};    // turn to face middle bar
-  autonCommands[22] = {-110, 0, 0, 0, 0, 0};  // drive almost up to middle bar
-  autonCommands[23] = {0, -46, 0, 0, 1, 0};   // open wings, turn to face net at angle
-  autonCommands[24] = {85, 0, 0, 0, 1, 0};    // ram orbs into net
-  autonCommands[25] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out) (close left wing to avoid pushing triballs away from net)
-  autonCommands[26] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in)
-  autonCommands[27] = {-75, 0, 0, 0, 0, 0};   // close wings, back up
-  autonCommands[28] = {0, -45, 0, 0, 0, 0};   // turn to be in line with middle bar
-  autonCommands[29] = {50, 0, 0, 0, 3, 0};    // open wings ( only left wing would be nice, should implement), drive forward
-  autonCommands[30] = {0, 45, 0, 0, 3, 0};    // turn to be facing net (angled towards middle)
-  autonCommands[31] = {85, 0, 0, 0, 1, 0};    // ram orbs into net, open both wings
-  autonCommands[32] = {-30, 0, 0, 0, 2, 0};   // re-ram pt.1 (out), (close left wing to avoid pushing triballs away from net)
-  autonCommands[33] = {30, 0, 0, 0, 1, 0};    // re-ram pt.2 (in),
-  autonCommands[34] = {-65, 0, 0, 0, 0, 0};   // close wings, back up most of the way
-  autonCommands[35] = {0, -115, 0, 0, 0, 0};  // turn to be facing corner, more towards gutter
-  autonCommands[36] = {45, 0, 0, 0, 0, 0};    // drive towards corner
-  autonCommands[37] = {0, -50, 0, 0, 0, 0};   // turn so back is facing net
-  autonCommands[38] = {-45, 0, 0, 0, 1, 0};   // open wings, move along ML bar
-  autonCommands[39] = {0, -45, 0, 0, 0, 0};   // close wings, turn back directly towards net
-  autonCommands[40] = {110, 0, 0, 0, 0, 0};   // ram orbs into net
-  autonCommands[41] = {0, -90, 0, 0, 0, 0};   // re-ram pt.1 (out)
-  autonCommands[42] = {110, 0, 0, 0, 0, 0};   // re-ram pt.2 (in)
-  autonCommands[43] = {0, -90, 0, 0, 0, 0};   // move away
-                                              /**/
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};       // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
+  autonCommands[1] = {-55, 0, 0, 0, 0, 0};     // back along the match loading bar
+  autonCommands[2] = {-10, 45, 0, 0, 0, 0};    // turn so back faces net [distance]***
+  autonCommands[3] = {-30, 0, 0, 0, 0, 0};     // ram triballs under net
+  autonCommands[4] = {37, 0, 0, 0, 0, 0};      // pull out of net, almost to match-load bar
+  autonCommands[5] = {5, -90, 0, 0, 0, 0};     // turn 90 to face target (close net corner)
+  autonCommands[6] = {-8, 0, 3, 0, 0, 0};      // drive back to barely touch bar [distance]***, raise arm
+  autonCommands[7] = {0, 0, 0, 90, 0, 1};      // match load, 20 seconds?
+  autonCommands[8] = {10, 0, 1, 0, 0, 0};      // fwd from match load bar
+  autonCommands[9] = {0, -130, 0, 0, 0, 0};    // turn so back is towards gutter
+  autonCommands[10] = {-73, 0, 0, 0, 0, 0};    // drive into mouth of gutter
+  autonCommands[11] = {-6, -45, 0, 0, 0, 0};   // turn to face gutter
+  autonCommands[12] = {105, 0, 0, 0, 0, 0};    // drive down length of gutter
+  autonCommands[13] = {91, 0, 0, 0, 0, 0};     // drive down length of gutter
+  autonCommands[14] = {0, -45, 0, 0, 2, 0};    // open right wing to clear ML corner, turn towards net
+  autonCommands[15] = {81, 0, 0, 0, 2, 0};     // drive bckwds past ML bar
+  autonCommands[16] = {10, -45, 0, 0, 0, 0};   // close wings, turn to face net
+  autonCommands[17] = {-20, -10, 0, 0, 0, 0};  // ram balls into bar
+  autonCommands[18] = {30, 0, 0, 0, 0, 0};     // re-ram pt.1 (out)
+  autonCommands[19] = {-30, 0, 0, 0, 0, 0};    // re-ram pt.2 (in)
+  autonCommands[20] = {0, 94, 0, 0, 0, 0};     // pull out of net
+  autonCommands[21] = {40, 50, 0, 0, 0, 0};    // turn to face middle bar
+  autonCommands[22] = {40, 0, 0, 0, 0, 0};     // drive almost up to middle bar
+  autonCommands[23] = {0, 140, 0, 0, 1, 0};    // open wings, turn to face net at angle
+  autonCommands[24] = {75, 0, 0, 0, 1, 0};     // ram orbs into net
+  autonCommands[25] = {-30, 0, 0, 0, 2, 0};    // re-ram pt.1 (out) (close left wing to avoid pushing triballs away from net)
+  autonCommands[26] = {30, 0, 0, 0, 1, 0};     // re-ram pt.2 (in)
+  autonCommands[27] = {-75, 0, 0, 0, 0, 0};    // close wings, back up
+  autonCommands[28] = {0, -50, 0, 0, 0, 0};    // turn to be in line with middle bar
+  autonCommands[29] = {50, 0, 0, 0, 3, 0};     // open wings ( only left wing would be nice, should implement), drive forward
+  autonCommands[30] = {0, 130, 0, 0, 3, 0};    // turn to be facing net (angled towards middle)
+  autonCommands[31] = {85, 0, 0, 0, 1, 0};     // ram orbs into net, open both wings
+  autonCommands[32] = {-30, 0, 0, 0, 2, 0};    // re-ram pt.1 (out), (close left wing to avoid pushing triballs away from net)
+  autonCommands[33] = {30, 0, 0, 0, 1, 0};     // re-ram pt.2 (in),
+  autonCommands[34] = {-65, 0, 0, 0, 0, 0};    // close wings, back up most of the way
+  autonCommands[35] = {0, -115, 0, 0, 0, 0};   // turn to be facing corner, more towards gutter
+  autonCommands[36] = {45, 0, 0, 0, 0, 0};     // drive towards corner
+  autonCommands[37] = {0, -50, 0, 0, 0, 0};    // turn so back is facing net
+  autonCommands[38] = {-45, 0, 0, 0, 1, 0};    // open wings, move along ML bar
+  autonCommands[39] = {0, 45, 0, 0, 0, 0};     // close wings, turn back directly towards net
+  autonCommands[40] = {-30, 0, 0, 0, 0, 0};    // ram orbs into net
+  autonCommands[41] = {30, 0, 0, 0, 0, 0};     // re-ram pt.1 (out)
+  autonCommands[42] = {-30, 0, 0, 0, 0, 0};    // re-ram pt.2 (in)
+  autonCommands[43] = {30, 0, 0, 0, 0, 0};     // move away
+                                               /**/
 
   // samich yummmmmmmmmy
 
@@ -1039,11 +1045,51 @@ void skillsAuton() {
   autonCommands->resize(totalNumOfCommands);
 }
 
-void offenceAuton() {  // starting on the enemy side of the field (no match
-                       // loading)
-  // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 =
-  // no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
+void offenceAuton() {  // starting on the enemy side of the field (no match loading)
+  // autonCommands[ autonStep ] = { latDist(cm), rotDist(degrees), armPos(1-5, 0 = no change), flywheelSpeed(%), wings[vvv], delay(sec) }
+  // wings: 0 = none, 1 = both, 2 = right, 3 = left
+
+  // safe route, does not try to score ball under horizontal bar. If have extra time, go for unsafe route?
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};      // [null padding, DO NOT REMOVE] start touching match load bar, facing towards middle triballs
+  autonCommands[1] = {10, 0, 0, 0, 0, 0};     // move slightly away from ML bar
+  autonCommands[2] = {0, 45, 0, 0, 0, 0};     // smack preload towards net
+  autonCommands[3] = {0, -45, 0, 0, 0, 0};    // course correct towards triball
+  autonCommands[4] = {85, 0, 2, 0, 0, 0};     // drive close to lower middle triball
+  autonCommands[5] = {10, 0, 3, 50, 0, 0};    // raise arm and drive to be barely touching middle triball with intake bands, spin flywheel
+  autonCommands[6] = {0, 110, 2, 0, 0, 0};    // lower arm, spin to be facing our net (slightly away from middle of field to prevent interference)**
+  autonCommands[7] = {0, 0, 0, -60, 0, 0};    // outtake orb
+  autonCommands[8] = {0, -200, 0, 0, 0, 0};   // turn to directly face upper middle orb
+  autonCommands[9] = {45, 0, 0, 0, 0, 0};     // drive close to orb
+  autonCommands[10] = {10, 0, 3, 50, 0, 0};   // drive such that bands touch orb, raise arm
+  autonCommands[11] = {5, 0, 2, 0, 0, 0};     // capture orb
+  autonCommands[12] = {-10, 0, 0, 0, 0, 0};   // back up slightly
+  autonCommands[13] = {0, 200, 0, 0, 0, 0};   // turn to face net (also slightly away from middle)
+  autonCommands[14] = {0, 0, 0, -60, 0, 0};   // outtake orb
+  autonCommands[15] = {80, 0, 0, 0, 2, 0};    // ram orbs under net with only right wing, to avoid risk of hitting opponents
+  autonCommands[16] = {-40, 0, 0, 0, 0, 0};   // back away from net
+  autonCommands[17] = {0, 145, 0, 0, 0, 0};   // turn towards corner triball
+  autonCommands[18] = {60, 0, 0, 0, 0, 0};    // get close to orb
+  autonCommands[19] = {10, 0, 3, 50, 0, 0};   // raise arm, creep towards orb & prep ''intake''
+  autonCommands[20] = {5, 0, 2, 0, 0, 0};     // capture orb
+  autonCommands[21] = {0, -130, 0, 0, 0, 0};  // turn to face space between ML bar and side of net
+  autonCommands[22] = {50, 0, 0, 0, 0, 0};    // drive until past the leg of the black horizontal bar
+  autonCommands[23] = {0, 0, 0, -75, 0, 0};   // bowl orb to be in front of the net's side *would be preferable to keep in intake entire time
+  // not sure outtaking is consistent enough for that though
+  autonCommands[24] = {0, 15, 0, 0, 0, 0};   // turn to face ML bar
+  autonCommands[25] = {35, 0, 0, 0, 0, 0};   // drive almost up to ML bar
+  autonCommands[26] = {0, -90, 0, 0, 2, 0};  // turn to be parallel with ML bar, extend wing
+  autonCommands[27] = {20, 0, 0, 0, 0, 0};   // clear corner orb
+  autonCommands[28] = {0, -45, 0, 0, 0, 0};  // turn to face net (this has us ram side of net with front of bot, may not have enough time to flip)
+  autonCommands[29] = {45, 0, 0, 0, 0, 0};   // ram bowled ball, preload and corner ball into net
+  autonCommands[30] = {0, 0, 0, 0, 0, 0};    // needs to navigate back to bar for AWP but im eepy
+
+  totalNumOfCommands = 31;
+  autonCommands->resize(totalNumOfCommands);
+}
+
+void defenceAuton() {  // starting on the team side of the field (match loading)
+  // autonCommands[ autonStep ] = { latDist(cm), rotDist(degrees), armPos(1-5, 0 = no change), flywheelSpeed(%), wings[vvv], delay(sec) }
+  // wings: 0 = none, 1 = both, 2 = right, 3 = left
 
   autonCommands[0] = {0, 0, 0, 0, 0, 0};     // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
   autonCommands[1] = {-55, 0, 0, 0, 0, 0};   // back along the match loading bar
@@ -1057,28 +1103,6 @@ void offenceAuton() {  // starting on the enemy side of the field (no match
   autonCommands[9] = {95, 0, 2, 0, 0, 0};    // drive up to HANG bar, raise arm
 
   totalNumOfCommands = 12;
-  autonCommands->resize(totalNumOfCommands);
-}
-
-void defenceAuton() {  // starting on the team side of the field (match loading)
-  // autonCommands[ autonStep ] = {[]}
-  //[lateralDistance(cm), rotationalDistance(degrees), flystickArmPos(1-5, 0 = no change), flywheelSpeed(%), wingsOut(bool), delay(seconds)]
-
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};     // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
-  autonCommands[1] = {-55, 0, 0, 0, 0, 0};   // back along the match loading bar
-  autonCommands[2] = {-10, 45, 0, 0, 0, 0};  // turn so back faces net [distance]***
-  autonCommands[3] = {0, 10, 0, 0, 0, 0};    // turn slightly away from wall
-  autonCommands[4] = {-45, 0, 0, 0, 0, 0};   // ram preload into net
-  autonCommands[5] = {60, 0, 0, 0, 0, 0};    // drive back to halfway along match load bar
-  autonCommands[6] = {0, -90, 0, 0, 0, 0};   // turn to face away from match load bar
-  autonCommands[7] = {20, 0, 5, 80, 0, 2};   // lower arm and spin flywheel
-  autonCommands[8] = {-40, 0, 0, -1, 0, 2};  // reverse into corner tribal, launching it out of corner
-  autonCommands[9] = {0, -100, 3, 0, 0, 0};  // stop flystick and turn towards horizontal climb bar
-  autonCommands[10] = {-35, 0, 0, 0, 0, 0};  // drive to entrance of climb bar corridor
-  autonCommands[11] = {0, -45, 0, 0, 0, 0};  // turn to face horizontal climb bar
-  autonCommands[12] = {-90, 0, 0, 0, 0, 0};  // drive until arm is touching horizontal bar
-
-  totalNumOfCommands = 13;
   autonCommands->resize(totalNumOfCommands);
 }
 
@@ -1276,7 +1300,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
 
 void autonomous() {
-  selectedRoute = 1;
+  selectedRoute = 2;
   autonPrinting();
 
   int maxiumAutonTime = 15 * ticksPerSec;  // sets the default auton kill time to 15 seconds
@@ -1315,15 +1339,12 @@ void autonomous() {
 
     FlywheelM.move_velocity(flywheelSpeed * 2);  // spins the flywheel at the desired speed (input as a percent)
 
-    if ((ArmRot.get_angle() / 100) < 306) {
-      AdjustFlystick(false, true);
-    }  // manages the height of the flystick arm
+    AdjustFlystick(false, true);  // manages the height of the flystick arm
 
     bool isCurrStepComplete = AutonPID(true);
 
-    if ((autonStep + 1) == totalNumOfCommands) {
+    if ((autonStep + 1) == totalNumOfCommands) {  // temp. locks the program if auton route is complete
       currentPage = 1;
-      // temp. kills the program if auton route is complete
 
       FullDrive.move_velocity(0);
       FlystickArmM.move_velocity(0);
@@ -1341,18 +1362,14 @@ void autonomous() {
       return;
 
 
-    } else if ((MainControl.get_digital_new_press(DIGITAL_X)) && globalTimer > minStepChangeTimeStamp) {
-      // ON DEBUG MODE, PRESS X TO CHANGE STEPS. || isCurrStepComplete
-
+    } else if ((MainControl.get_digital_new_press(DIGITAL_X) || isCurrStepComplete) && globalTimer > minStepChangeTimeStamp) {
+      //
       desiredDist += nextCommand.at(0) * degPerCM;
       desiredHeading += nextCommand.at(1);
 
-      if (nextCommand.at(0) < 50 || nextCommand.at(1) < 90) {  // calling the vector's subvalues multiple times is bad practice
-        // i do not care atm (its mostly negligible since it isn't in the main loop)
-        setPIDTunings(true);
-      } else {
-        setPIDTunings(false);
-      }
+      setPIDTunings((nextCommand.at(0) < 50 || nextCommand.at(1) < 90));  // calling the vector's subvalues multiple times is bad practice
+      // i do not care atm (its mostly negligible since it isn't in the main loop)
+
 
       flystickArmPos = (nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos;
       flywheelSpeed = nextCommand.at(3);
@@ -1376,7 +1393,7 @@ void autonomous() {
           break;
       }
 
-      minStepChangeTimeStamp = globalTimer + GreaterOf(nextCommand.at(5), minPrintingDelay);
+      minStepChangeTimeStamp = globalTimer + GreaterOf(nextCommand.at(5), stepChangeCooldown);
       // current time plus step end delay = min time at which step can end
 
       autonStep++;
@@ -1384,6 +1401,7 @@ void autonomous() {
       delay(tickDeltaTime * minPrintingDelay);
     }
 
+#pragma region Diagnostics
 
     // diagnostics section  |  [2] AutRoute - 1
     int startingPage = pageRangeFinder(2);
@@ -1400,6 +1418,7 @@ void autonomous() {
     PrintToController("FArmPos: ", ((nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos), 1, 1, startingPage + 2);
     PrintToController("FWheelSpd: ", nextCommand.at(3), 3, 2, startingPage + 2);
 
+#pragma endregion  // Diagnostics
 
     globalTimer++;
     delay(tickDeltaTime);
@@ -1414,7 +1433,7 @@ void autonomous() {
 
 void opcontrol() {
   // competition_initialize();
-  autonomous();
+  // autonomous();
 
   // tunePID(true);
 
