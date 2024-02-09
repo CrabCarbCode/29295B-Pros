@@ -620,7 +620,7 @@ int prevYStickPercent = 0;
 void DrivingControl(bool isPrinting) {  // resoponsible for user control of the drivetrain
 
   if (MainControl.get_digital_new_press(DIGITAL_Y)) {  // inverts the drive upon button press, including steering
-    reverseDrive = (reverseDrive > 0) ? 1 : -1;
+    reverseDrive = (reverseDrive > 0) ? -1 : 1;
   }
 
   // taking the position of the sticks and appplying gradient diffusion to them. Check the StickSmoothingFunc graph for details
@@ -746,6 +746,8 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
         break;
     }
   }
+
+  if (MainControl.get_digital_new_press(DIGITAL_L1)) { maxFlywheelSpeed = -90; }
 
   if (MainControl.get_digital_new_press(DIGITAL_A)) { flywheelToggled = !flywheelToggled; }
 
@@ -1301,7 +1303,7 @@ void autonomous() {
 
     FlywheelM.move_velocity(flywheelSpeed * 2);  // spins the flywheel at the desired speed (input as a percent)
 
-    if ((ArmRot.get_angle() / 100) < 306) { AdjustFlystick(false, true); }  // manages the height of the flystick arm
+    AdjustFlystick(false, true);  // manages the height of the flystick arm
 
     bool isCurrStepComplete = AutonPID(true);
 
