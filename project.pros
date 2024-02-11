@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "Aton",
+    "project_name": "TestAut",
     "target": "v5",
     "templates": {
       "kernel": {

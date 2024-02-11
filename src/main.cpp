@@ -141,12 +141,8 @@ void lcdControl() {
     MainControl.clear();
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_LEFT) && currentPage > 0) {
-    currentPage--;
-  }
-  if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) {
-    currentPage++;
-  }
+  if (MainControl.get_digital_new_press(DIGITAL_LEFT) && currentPage > 0) { currentPage--; }
+  if (MainControl.get_digital_new_press(DIGITAL_RIGHT)) { currentPage++; }
 }
 
 
@@ -168,9 +164,7 @@ const int pagesPerPrint[9] = {1, 1, 3, 2, 2, 1, 2, 2, 2};  // hardcoded list con
 int pageRangeFinder(int index) {  // calculates which page(s) a
   int startingPage = 1;           // given function should print to
   // start on page 1
-  for (int j = 0; j < index; ++j) {
-    startingPage += isPrintingList[j] ? pagesPerPrint[j] : 0;
-  }
+  for (int j = 0; j < index; ++j) { startingPage += isPrintingList[j] ? pagesPerPrint[j] : 0; }
 
   return startingPage;
 }
@@ -478,9 +472,17 @@ bool AutonPID(bool isPrinting) {
 
 float previousErrorF = 0;  // previous error variable for the flystick arm
 
-bool allowAdjust = false;
 bool kickstandRetracted = false;
-int kickstandRetractedTimeStamp;
+bool isKillingKickstand = false;
+
+bool killKickStand() {
+  FlystickArmM.move_velocity(-60);
+  if ((ArmRot.get_angle() / 100) > (defaultArmPos - 7)) {
+    return false;
+  } else {
+    return true;
+  }
+}
 
 void AdjustFlystick(bool isPrinting, bool isMoving) {
   const float fP = 0.8;
@@ -496,19 +498,15 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
   int desiredRotation;
   float armPos = ArmRot.get_angle() / 100;
 
-  if (kickstandRetracted) {  // kills the function if the arm is in kickstand mode or out of bounds
-    return;
-  }
-
   switch (flystickArmPos) {
     case -1:
       desiredRotation = defaultArmPos;
       break;
     case 1:
-      desiredRotation = 210;
+      desiredRotation = 213;
       break;
     case 2:
-      desiredRotation = 205;
+      desiredRotation = 202;
       deadzoneF = 3;  // relax the deadzone for intakemode
       break;
     case 3:
@@ -522,20 +520,26 @@ void AdjustFlystick(bool isPrinting, bool isMoving) {
       break;
   }
 
-  if (timeSincePoint(kickstandRetractedTimeStamp) < 5) {
-    desiredRotation = defaultArmPos - 10;
-  }
-
   float currentErrorF = desiredRotation - armPos;
   float errorDerivativeF = currentErrorF - previousErrorF;
 
   previousErrorF = currentErrorF;
 
+  if (isPrinting && isPrintingList[0]) {
+    PrintToController("ArmPos: ", armPos, 5, 0, 1);
+    PrintToController("ErrorF: ", currentErrorF, 5, 1, 1);
+    PrintToController("DesArmPos: ", desiredRotation, 5, 2, 1);
+  }
+
+
   if (!isMoving) {  // return before the arm is allowed to move, prevents unwanted motion
     return;
   }
 
-
+  if (!kickstandRetracted && isKillingKickstand) {
+    kickstandRetracted = killKickStand();
+    return;
+  }
 
   if (abs(currentErrorF) >= deadzoneF) {
     FlystickArmM.move_velocity(fO * (currentErrorF + errorDerivativeF));
@@ -634,8 +638,8 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
   // taking the position of the sticks and appplying gradient diffusion to them. Check the StickSmoothingFunc graph for details
   // X stick covers fwd/back, Y stick covers turning
 
-  float XStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27 * reverseDrive);   // w on graph
-  float YStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27 * reverseDrive);  // s on graph
+  float XStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_LEFT_Y) / 1.27 * reverseDrive);  // w on graph
+  float YStickPercent = StickSmoothingFunc(MainControl.get_analog(E_CONTROLLER_ANALOG_RIGHT_X) / 1.27);                // s on graph
 
   static float ptsPerTick = 4;
 
@@ -681,9 +685,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     }
 
     if (isPrinting) {  // [4] Drivetrain - 2
-      if (!isPrintingList[4]) {
-        isPrintingList[4] = true;
-      }
+      if (!isPrintingList[4]) { isPrintingList[4] = true; }
 
       int startPage = pageRangeFinder(4);
 
@@ -705,9 +707,7 @@ void DrivingControl(bool isPrinting) {  // resoponsible for user control of the 
     RAccelTime -= (RAccelTime > 0) ? ptsPerTick : -ptsPerTick;
 
     if (isPrinting) {  // [4] Drivetrain - 2
-      if (!isPrintingList[4]) {
-        isPrintingList[4] = true;
-      }
+      if (!isPrintingList[4]) { isPrintingList[4] = true; }
 
       int startPage = pageRangeFinder(4);
 
@@ -733,18 +733,20 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
 
   const int cooldown = 5;
 
-  if (MainControl.get_digital_new_press(DIGITAL_UP) && flystickArmPos < maxflystickArmPos) {
-    if (!kickstandRetracted) {
-      kickstandRetractedTimeStamp = globalTimer;
+  if (MainControl.get_digital_new_press(DIGITAL_UP) && ((flystickArmPos < maxflystickArmPos) || !isKillingKickstand)) {
+    if (!isKillingKickstand) {
+      flystickArmPos = 2;  // subtracting 1 from despos to account for addition later
+      isKillingKickstand = true;
     }
 
     flystickArmPos++;
     lastUpTimestamp = globalTimer;
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && (flystickArmPos > 1 || !kickstandRetracted)) {
-    if (!kickstandRetracted) {
-      kickstandRetractedTimeStamp = globalTimer;
+  if (MainControl.get_digital_new_press(DIGITAL_DOWN) && ((flystickArmPos > 1) || !isKillingKickstand)) {
+    if (!isKillingKickstand) {
+      flystickArmPos = 2;  // adding 1 to account for later subtraction
+      isKillingKickstand = true;
     }
 
     flystickArmPos--;
@@ -755,7 +757,7 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
     isInIntakeMode = !isInIntakeMode;
     switch (isInIntakeMode) {
       case 0:
-        maxFlywheelSpeed = 55;
+        maxFlywheelSpeed = 65;
         break;
       case 1:
         maxFlywheelSpeed = 88;
@@ -763,13 +765,9 @@ void FlystickControl(bool isPrinting) {  // controls driver interaction with the
     }
   }
 
-  if (MainControl.get_digital_new_press(DIGITAL_L1)) {
-    maxFlywheelSpeed = -90;
-  }
+  if (MainControl.get_digital_new_press(DIGITAL_L1)) { maxFlywheelSpeed = -90; }
 
-  if (MainControl.get_digital_new_press(DIGITAL_A)) {
-    flywheelToggled = !flywheelToggled;
-  }
+  if (MainControl.get_digital_new_press(DIGITAL_A)) { flywheelToggled = !flywheelToggled; }
 
   if (flywheelToggled) {
     FlywheelM.move_velocity(2 * maxFlywheelSpeed);
@@ -929,36 +927,20 @@ void tuneDrive(bool isPrinting) {  // allows for user driving, with real time co
   while (true) {
     lcdControl();
 
-    if (MainControl.get_digital_new_press(DIGITAL_X)) {
-      ACurveExtremity += adjustFactor / 100000;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_A)) {
-      AMinAmount += adjustFactor / 1000;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_B)) {
-      linearHarshness += adjustFactor / 20;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_Y)) {
-      SCurveExtremity += adjustFactor / 10;
-    }
+    if (MainControl.get_digital_new_press(DIGITAL_X)) { ACurveExtremity += adjustFactor / 100000; }
+    if (MainControl.get_digital_new_press(DIGITAL_A)) { AMinAmount += adjustFactor / 1000; }
+    if (MainControl.get_digital_new_press(DIGITAL_B)) { linearHarshness += adjustFactor / 20; }
+    if (MainControl.get_digital_new_press(DIGITAL_Y)) { SCurveExtremity += adjustFactor / 10; }
 
-    if (MainControl.get_digital_new_press(DIGITAL_UP)) {
-      adjustFactor++;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_DOWN)) {
-      adjustFactor--;
-    }
-    if (MainControl.get_digital_new_press(DIGITAL_L1)) {
-      adjustFactor *= -1;
-    }
+    if (MainControl.get_digital_new_press(DIGITAL_UP)) { adjustFactor++; }
+    if (MainControl.get_digital_new_press(DIGITAL_DOWN)) { adjustFactor--; }
+    if (MainControl.get_digital_new_press(DIGITAL_L1)) { adjustFactor *= -1; }
 
     DrivingControl(true);
 
 
     if (isPrinting) {  // [7] Drive Tune - 1
-      if (!isPrintingList[7]) {
-        isPrintingList[7] = true;
-      }
+      if (!isPrintingList[7]) { isPrintingList[7] = true; }
 
       int startPage = pageRangeFinder(7);
 
@@ -1041,7 +1023,6 @@ void skillsAuton() {
   autonCommands[47] = {-30, 0, 0, 0, 0, 0};   // Turn to go down
   autonCommands[48] = {30, 0, 0, 0, 0, 0};    // Turn to go down
   autonCommands[49] = {-60, 0, 0, 0, 0, 0};   // Turn to go down
-                                              /**/
 
   // samich yummmmmmmmmy
 
@@ -1095,18 +1076,28 @@ void defenceAuton() {  // starting on the team side of the field (match loading)
   // autonCommands[ autonStep ] = { latDist(cm), rotDist(degrees), armPos(1-5, 0 = no change), flywheelSpeed(%), wings[vvv], delay(sec) }
   // wings: 0 = none, 1 = both, 2 = right, 3 = left
 
-  autonCommands[0] = {0, 0, 0, 0, 0, 0};     // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall
-  autonCommands[1] = {-55, 0, 0, 0, 0, 0};   // back along the match loading bar
-  autonCommands[2] = {-10, 45, 0, 0, 0, 0};  // turn so back faces net [distance]***
-  autonCommands[3] = {-30, 0, 0, 0, 0, 0};   // ram triballs under net
-  autonCommands[4] = {30, 0, 0, 0, 0, 0};    // pull out of net, almost to match-load bar
-  autonCommands[5] = {10, -45, 0, 0, 0, 0};  // turn to face away from match load bar
-  autonCommands[6] = {25, 0, 0, 0, 0, 0};    // move up along ML bar
-  autonCommands[7] = {25, 0, 0, 0, 2, 0};    // continue along ML bar, clear triball
-  autonCommands[8] = {0, -45, 0, 0, 0, 0};   // turn to face HANG bar
-  autonCommands[9] = {95, 0, 2, 0, 0, 0};    // drive up to HANG bar, raise arm
+  // 4 ball over, preload under defense auton
+  autonCommands[0] = {0, 0, 0, 0, 0, 0};      // [null padding, DO NOT REMOVE] start parallel to match loading bar, front facing wall (skills setup)
+  autonCommands[1] = {-55, 0, 2, 0, 0, 0};    // back along the match loading bar
+  autonCommands[2] = {-10, 45, 0, 0, 0, 0};   // turn so back faces net
+  autonCommands[3] = {-20, 0, 0, 0, 0, 0};    // ram preload under net
+  autonCommands[4] = {20, 0, 0, 0, 0, 0};     // drive back to ML bar
+  autonCommands[5] = {10, -45, 0, 0, 2, 0};   // reallign with ML bar, open right wing
+  autonCommands[6] = {45, 0, 0, 0, 2, 0};     // clear corner triball
+  autonCommands[7] = {0, -45, 0, 0, 2, 0};    // turn to face gutter
+  autonCommands[8] = {0, -21.8, 0, 0, 0, 0};  // close wing, turn to face lower middle triball (using trig!)
+  autonCommands[9] = {110, 0, 0, 0, 0, 0};    // drive almost up to middle triball
+  autonCommands[10] = {5, 0, 3, 0, 0, 0};     // drive to touch orb, raise arm
+  autonCommands[11] = {5, 0, 2, 0, 0, 0};     // drive forward, capture orb
+  autonCommands[12] = {0, 21.8, 0, 0, 3, 0};  // turn to face middle bar, extend left wing
+  autonCommands[13] = {55, 0, 0, -70, 3, 0};  // push orbs over middle
+  autonCommands[14] = {-90, 0, 0, 0, 0, 0};   // move back towards net
+  autonCommands[15] = {0, 90, 0, 0, 0, 0};    // turn towards gutter
+  autonCommands[16] = {150, 0, 0, 0, 0, 0};   // drive to mouth of gutter
+  autonCommands[17] = {0, 90, 0, 0, 0, 0};    // turn to face gutter with back
+  autonCommands[18] = {-105, 0, 3, 0, 0, 0};  // drive to push over corner orb / gutter orb, touch bar
 
-  totalNumOfCommands = 12;
+  totalNumOfCommands = 19;
   autonCommands->resize(totalNumOfCommands);
 }
 
@@ -1124,7 +1115,7 @@ void testAuton() {
   autonCommands[5] = {0, -90, 0, 0, 0, 0};  // fwd 25cm
   autonCommands[6] = {0, 90, 0, 0, 0, 0};   // right 90deg
   autonCommands[7] = {25, 0, 0, 0, 0, 0};   // fwd 25cm to starting pos
-  autonCommands[8] = {0, 0, 3, 50, 0, 5};   // raise arm, 50% flywheel speed, pause 5 sec
+  autonCommands[8] = {0, 0, 3, 0, 0, 5};    // raise arm, 50% flywheel speed, pause 5 sec
   autonCommands[9] = {-15, 0, 1, 0, 0, 0};  // back 15cm, lower arm
 
   totalNumOfCommands = 10;
@@ -1220,8 +1211,7 @@ void initialize() {
   WingPL.set_value(false);
   WingPR.set_value(false);
 
-  FullDrive.tare_position();
-  FullDrive.set_zero_position(0);
+
   startingWheelPos = FlywheelM.get_position();
 
   mStartPosL = LDriveTopM.get_position();
@@ -1233,12 +1223,11 @@ void initialize() {
 
   ArmRot.reverse();
 
-  defaultArmPos = ArmRot.get_position() / 100;
   Inertial.reset(true);
+  defaultArmPos = ArmRot.get_position() / 100;
 }
 
 void disabled() {}
-
 
 void competition_initialize() {  // auton selector (bop-it!)
 
@@ -1304,7 +1293,7 @@ void competition_initialize() {  // auton selector (bop-it!)
 
 
 void autonomous() {
-  selectedRoute = 2;
+  selectedRoute = 5;
   autonPrinting();
 
   int maxiumAutonTime = 15 * ticksPerSec;  // sets the default auton kill time to 15 seconds
@@ -1334,6 +1323,8 @@ void autonomous() {
   desiredHeading = 0;
   std::array<int, 6> nextCommand = {0, 0, 0, 0, 0, 0};
 
+  flystickArmPos = 1;
+  isKillingKickstand = true;
 
   while (globalTimer < maxiumAutonTime) {
     const float heading = std::fmod(Inertial.get_heading(), 360.0f);
@@ -1354,9 +1345,7 @@ void autonomous() {
       FlystickArmM.move_velocity(0);
       FlywheelM.move_velocity(0);
 
-      if (globalTimer % 11) {
-        MainControl.clear();
-      }
+      if (globalTimer % 11) { MainControl.clear(); }
 
       PrintToController("Out of bounds", 0, 0, 1, 1);
 
@@ -1367,7 +1356,7 @@ void autonomous() {
 
 
     } else if ((MainControl.get_digital_new_press(DIGITAL_X)) && globalTimer > minStepChangeTimeStamp) {
-      //
+      // || isCurrStepComplete  <- remove/place next to (DIGITAL_X) to exit/enter debug mode
       desiredDist += nextCommand.at(0) * degPerCM;
       desiredHeading += nextCommand.at(1);
 
@@ -1375,7 +1364,7 @@ void autonomous() {
       // i do not care atm (its mostly negligible since it isn't in the main loop)
 
 
-      flystickArmPos = (nextCommand.at(2) > 0) ? nextCommand.at(3) : flystickArmPos;
+      flystickArmPos = (nextCommand.at(2) != 0) ? nextCommand.at(2) : flystickArmPos;
       flywheelSpeed = nextCommand.at(3);
 
       switch (nextCommand.at(4)) {
